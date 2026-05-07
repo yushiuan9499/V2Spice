@@ -42,6 +42,8 @@ enum AstType {
 };
 struct Ast {
     const AstType type;
+    Ast(AstType type) : type(type) {}
+    virtual ~Ast() = default;
 };
 
 struct WireDeclAst : public Ast {
@@ -67,6 +69,15 @@ struct ModuleDeclAst : public Ast {
     std::vector<Idx> ports;
     std::vector<Ast *> body;
     ModuleDeclAst() : Ast{AST_TYPE_MODULE_DECL} {}
+    ~ModuleDeclAst()
+    {
+        for (auto param : params) {
+            delete param;
+        }
+        for (auto stmt : body) {
+            delete stmt;
+        }
+    }
 };
 
 struct ModuleInstAst : public Ast {
@@ -83,6 +94,12 @@ struct ModuleInstAst : public Ast {
     };
     std::vector<Port> ports;
     ModuleInstAst() : Ast{AST_TYPE_MODULE_INST} {}
+    ~ModuleInstAst()
+    {
+        for (auto param : params) {
+            delete param;
+        }
+    }
 };
 
 #endif  // DEFS_H

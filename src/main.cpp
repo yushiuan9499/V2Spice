@@ -28,5 +28,8 @@ int main(int argc, char *argv[])
     std::cerr << asts.size() << " ASTs generated.\n";
 #endif
     print(asts);
+    for (Ast *ast : asts) {
+        delete ast;
+    }
     return 0;
 }
