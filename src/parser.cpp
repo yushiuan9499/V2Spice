@@ -209,7 +209,7 @@ static void parse_module_decl(const std::vector<Token> &tokens,
 
     if (tokens[pos].type == TOKEN_TYPE_LPAREN) {
         pos++;  // Skip '('
-        while (1) {
+        while (!accept(tokens, TOKEN_TYPE_RPAREN)) {
             expect(tokens, TOKEN_TYPE_IDENTIFIER);
             ast->ports.push_back(tokens[pos].idx);
             pos++;
@@ -217,10 +217,8 @@ static void parse_module_decl(const std::vector<Token> &tokens,
                 pos++;  // Skip ','
                 continue;
             }
-            break;
+            expect(tokens, TOKEN_TYPE_RPAREN);
         }
-        expect(tokens, TOKEN_TYPE_RPAREN);
-        pos++;  // Skip ')'
     }
 
     expect(tokens, TOKEN_TYPE_SEMICOLON);

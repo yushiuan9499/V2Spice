@@ -32,3 +32,6 @@ n_18 M2 #(W=0.5u,L=18u)(
     .D(out_1)
 );
 endmodule
+
+module no_port();
+endmodule
