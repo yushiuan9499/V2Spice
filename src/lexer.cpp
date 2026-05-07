@@ -1,8 +1,8 @@
-#include <iostream>
 #include <map>
 
 #include "defs.h"
 #include "lexer.h"
+#include "log.h"
 
 static unsigned pos;
 
@@ -158,9 +158,10 @@ std::vector<Token> lex(const std::string &input)
         if (pos < input.size() && input[pos] != '(' && input[pos] != ')' &&
             input[pos] != ';' && input[pos] != '=' && input[pos] != '#' &&
             input[pos] != ',' && input[pos] != '.' && !isspace(input[pos])) {
-            std::cerr << "Unexpected character '" << input[pos]
-                      << "' at position " << pos << "\n";
-            exit(1);
+            std::string msg = "Unexpected character '";
+            msg += input[pos];
+            msg += "' at position " + std::to_string(pos);
+            critical({pos, 1}, msg.c_str());
         }
         tokens.push_back({start, (unsigned short) (pos - start),
                           node ? node->type : TOKEN_TYPE_IDENTIFIER});

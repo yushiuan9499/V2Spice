@@ -1,18 +1,51 @@
-#include <iostream>
+#include <string>
 
 #include "defs.h"
+#include "log.h"
 #include "parser.h"
 
 static unsigned pos;
 
 extern std::string s;
-static void expect(const std::vector<Token> &tokens, TokenType type)
+static void expect(const std::vector<Token> &tokens,
+                   TokenType type,
+                   bool is_critical = true)
 {
     if (tokens[pos].type != type) {
-        std::cerr << "Syntax error: expected token type " << type << " but got "
-                  << tokens[pos].type << "\n";
-        std::cerr << "At: " << s.substr(tokens[pos].idx.start, 10) << "...\n";
-        exit(1);
+        std::string s = "expected token type ";
+        s += token_str[type];
+        s += " but got ";
+        if (tokens[pos].type == TOKEN_TYPE_IDENTIFIER) {
+            s += " \"" +
+                 std::string(
+                     s.substr(tokens[pos].idx.start, tokens[pos].idx.len)) +
+                 "\"";
+        } else {
+            s += token_str[tokens[pos].type];
+        }
+        if (is_critical) {
+            critical(tokens[pos].idx, s.c_str());
+        } else {
+            error(tokens[pos].idx, s.c_str());
+        }
+    }
+}
+
+static void unexpected_token(const std::vector<Token> &tokens,
+                             bool is_critical = true)
+{
+    std::string s = "unexpected token type ";
+    if (tokens[pos].type == TOKEN_TYPE_IDENTIFIER) {
+        s += " \"" +
+             std::string(s.substr(tokens[pos].idx.start, tokens[pos].idx.len)) +
+             "\"";
+    } else {
+        s += token_str[tokens[pos].type];
+    }
+    if (is_critical) {
+        critical(tokens[pos].idx, s.c_str());
+    } else {
+        error(tokens[pos].idx, s.c_str());
     }
 }
 
@@ -205,7 +238,7 @@ static void parse_module_decl(const std::vector<Token> &tokens,
             parse_assign(tokens, ast->body);
             continue;
         }
-        /* TODO: Report error */
+        unexpected_token(tokens);
     }
     asts.push_back(ast);
     pos++;  // Skip 'endmodule'
@@ -224,7 +257,7 @@ std::vector<Ast *> parse(const std::vector<Token> &tokens)
             parse_wire_decl(tokens, asts);
             continue;
         }
-        /* TODO: Report error */
+        unexpected_token(tokens);
     }
     return asts;
 }

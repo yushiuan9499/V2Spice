@@ -19,7 +19,25 @@ enum TokenType {
     TOKEN_TYPE_WIRE,        // wire
     TOKEN_TYPE_PARAM,       // parameter
     TOKEN_TYPE_IDENTIFIER,  // identifier & number
+    TOKEN_TYPE_NR
 };
+
+static const char *token_str[TOKEN_TYPE_NR] = {
+    [TOKEN_TYPE_NONE] = "",
+    [TOKEN_TYPE_EOF] = "<EOF>",
+    [TOKEN_TYPE_LPAREN] = "(",
+    [TOKEN_TYPE_RPAREN] = ")",
+    [TOKEN_TYPE_SEMICOLON] = ";",
+    [TOKEN_TYPE_EQUAL] = "=",
+    [TOKEN_TYPE_HASHTAG] = "#",
+    [TOKEN_TYPE_COMMA] = ",",
+    [TOKEN_TYPE_DOT] = ".",
+    [TOKEN_TYPE_ASSIGN] = "assign",
+    [TOKEN_TYPE_MODULE] = "module",
+    [TOKEN_TYPE_ENDMODULE] = "endmodule",
+    [TOKEN_TYPE_WIRE] = "wire",
+    [TOKEN_TYPE_PARAM] = "parameter",
+    [TOKEN_TYPE_IDENTIFIER] = "<identifier>"};
 
 struct Idx {
     unsigned start;

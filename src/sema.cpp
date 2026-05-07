@@ -1,8 +1,8 @@
 #include <algorithm>
-#include <iostream>
 #include <map>
 #include <string>
 
+#include "log.h"
 #include "sema.h"
 
 extern std::string s;
@@ -16,8 +16,9 @@ static Ast *sema_module_inst(ModuleInstAst *ast)
     std::string module_name =
         s.substr(ast->module_name.start, ast->module_name.len);
     if (!module_table.count(module_name)) {
-        std::cerr << "Error: Module '" << module_name << "' is not defined.\n";
-        exit(1);
+        std::string msg = "Module '" + module_name + "' is not defined.";
+        error(ast->module_name, msg.c_str());
+        return ast;
     }
     if (!ast->use_named_port) {
         return ast;
@@ -27,20 +28,23 @@ static Ast *sema_module_inst(ModuleInstAst *ast)
         std::string port_name =
             s.substr(port.named.port_name.start, port.named.port_name.len);
         if (!module_port_indices[module_table[module_name]].count(port_name)) {
-            std::cerr << "Error: Port '" << port_name
-                      << "' is not defined in module '" << module_name
-                      << "'.\n";
-            exit(1);
+            std::string msg = "Port '" + port_name +
+                              "' is not defined in module '" + module_name +
+                              "'.";
+            error(port.named.port_name, msg.c_str());
+            return ast;
         }
         ports.push_back(
             {module_port_indices[module_table[module_name]][port_name],
              port.named.wire_name});
     }
     if (ports.size() != module_table[module_name]->ports.size()) {
-        std::cerr << "Error: Module '" << module_name << "' expects "
-                  << module_table[module_name]->ports.size() << " ports, but "
-                  << ports.size() << " were provided.\n";
-        exit(1);
+        std::string msg =
+            "Module '" + module_name + "' expects " +
+            std::to_string(module_table[module_name]->ports.size()) +
+            " ports, but " + std::to_string(ports.size()) + " were provided.";
+        error(ast->module_name, msg.c_str());
+        return ast;
     }
     sort(ports.begin(), ports.end(),
          [](const std::pair<short, Idx> &a, const std::pair<short, Idx> &b) {
@@ -57,8 +61,9 @@ static Ast *sema_module_decl(ModuleDeclAst *ast)
 {
     std::string name = s.substr(ast->name.start, ast->name.len);
     if (module_table.count(name)) {
-        std::cerr << "Error: Module '" << name << "' is already defined.\n";
-        exit(1);
+        std::string msg = "Module '" + name + "' is already defined.";
+        error(ast->name, msg.c_str());
+        return ast;
     }
     for (Ast *&stmt : ast->body) {
         if (stmt->type == AST_TYPE_MODULE_INST) {
@@ -70,9 +75,10 @@ static Ast *sema_module_decl(ModuleDeclAst *ast)
         std::string port_name =
             s.substr(ast->ports[i].start, ast->ports[i].len);
         if (module_port_indices[ast].count(port_name)) {
-            std::cerr << "Error: Port '" << port_name
-                      << "' is already defined in module '" << name << "'.\n";
-            exit(1);
+            std::string msg = "Port '" + port_name +
+                              "' is already defined in module '" + name + "'.";
+            error(ast->ports[i], msg.c_str());
+            return ast;
         }
         module_port_indices[ast][port_name] = i;
     }
