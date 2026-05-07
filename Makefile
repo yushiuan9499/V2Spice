@@ -1,5 +1,5 @@
 CXX=g++
-CFLAGS=-g
+CFLAGS=-g -fsanitize=address -fsanitize=undefined
 
 SRC_DIR=src
 BUILD_DIR=build
