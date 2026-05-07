@@ -1,4 +1,5 @@
 #include <iostream>
+#include <map>
 
 #include "defs.h"
 #include "lexer.h"
@@ -6,15 +7,10 @@
 static unsigned pos;
 
 struct Trie {
-    Trie *children[128];
+    std::map<unsigned int, Trie *> children;
     TokenType type;
 
-    Trie() : type(TOKEN_TYPE_NONE)
-    {
-        for (int i = 0; i < 128; i++) {
-            children[i] = nullptr;
-        }
-    }
+    Trie() : type(TOKEN_TYPE_IDENTIFIER) {}
 };
 
 static Trie *root;
@@ -28,11 +24,25 @@ __attribute__((constructor)) static Trie *build_keyword_trie()
     };
     for (const auto &kw : keywords) {
         Trie *node = root;
-        for (const char *c = kw.first; *c; c++) {
-            if (node->children[(unsigned char) *c] == nullptr) {
-                node->children[(unsigned char) *c] = new Trie();
+        unsigned int v = 0;
+        int i = 0;
+        for (const char *c = kw.first; *c;) {
+            v = (v << 8) | (unsigned char) *c;
+            i++;
+            c++;
+            if (i % 4 == 0) {
+                if (!node->children.count(v)) {
+                    node->children[v] = new Trie();
+                }
+                node = node->children[v];
+                v = 0;
             }
-            node = node->children[(unsigned char) *c];
+        }
+        if (v) {
+            if (!node->children.count(v)) {
+                node->children[v] = new Trie();
+            }
+            node = node->children[v];
         }
         node->type = kw.second;
     }
@@ -124,12 +134,26 @@ std::vector<Token> lex(const std::string &input)
         }
         unsigned start = pos;
         Trie *node = root;
+        unsigned int v = 0;
         while (pos < input.size() && (isalnum(input[pos]) ||
                                       input[pos] == '_' || input[pos] == '.')) {
-            if (node) {
-                node = node->children[(unsigned char) input[pos]];
-            }
+            v = (v << 8) | (unsigned char) input[pos];
             pos++;
+            if ((pos - start) % 4 == 0) {
+                if (node && node->children.count(v)) {
+                    node = node->children[v];
+                } else {
+                    node = nullptr;
+                }
+                v = 0;
+            }
+        }
+        if (v) {
+            if (node && node->children.count(v)) {
+                node = node->children[v];
+            } else {
+                node = nullptr;
+            }
         }
         if (pos < input.size() && input[pos] != '(' && input[pos] != ')' &&
             input[pos] != ';' && input[pos] != '=' && input[pos] != '#' &&
