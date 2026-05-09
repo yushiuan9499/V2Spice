@@ -60,22 +60,104 @@ static bool accept(const std::vector<Token> &tokens, TokenType type)
     return false;
 }
 
+enum OpPri {
+    OP_PRI_NONE,
+    OP_PRI_OR,        // ||
+    OP_PRI_AND,       // &&
+    OP_PRI_EQUALITY,  // ==, !=
+    OP_PRI_REL,       // <, >, <=, >=
+    OP_PRI_ADD,       // +, -
+    OP_PRI_MUL,       // *, /, %
+};
+inline OpPri get_op_pri(TokenType op)
+{
+    switch (op) {
+    case TOKEN_TYPE_OR:
+        return OP_PRI_OR;
+    case TOKEN_TYPE_AND:
+        return OP_PRI_AND;
+    case TOKEN_TYPE_EQUAL2:
+    case TOKEN_TYPE_NOT_EQUAL:
+        return OP_PRI_EQUALITY;
+    case TOKEN_TYPE_LT:
+    case TOKEN_TYPE_GT:
+    case TOKEN_TYPE_LE:
+    case TOKEN_TYPE_GE:
+        return OP_PRI_REL;
+    case TOKEN_TYPE_PLUS:
+    case TOKEN_TYPE_MINUS:
+        return OP_PRI_ADD;
+    case TOKEN_TYPE_ASTERISK:
+    case TOKEN_TYPE_SLASH:
+    case TOKEN_TYPE_PERCENT:
+        return OP_PRI_MUL;
+    default:
+        return OP_PRI_NONE;
+    }
+}
+
+static Ast *parse_binary_op(const std::vector<Token> &tokens)
+{
+    std::vector<std::pair<Ast *, Token>> ast_stack;
+    bool done = false;
+    while (!done) {
+        Ast *e;
+        if (tokens[pos].type == TOKEN_TYPE_IDENTIFIER) {
+            IdAst *ast = new IdAst;
+            ast->name = tokens[pos].idx;
+            pos++;
+            e = ast;
+        } else if (tokens[pos].type == TOKEN_TYPE_NUMBER) {
+            NumberAst *ast = new NumberAst;
+            ast->pos = tokens[pos].idx;
+            e = ast;
+            pos++;
+        } else {
+            unexpected_token(tokens);
+        }
+        ast_stack.emplace_back(e, tokens[pos]);
+        if (get_op_pri(tokens[pos].type) != OP_PRI_NONE) {
+            /* We only consume binary operators */
+            pos++;
+        } else {
+            done = true;
+        }
+        while (ast_stack.size() > 1) {
+            Token rhs_op = ast_stack.back().second;
+            Token lhs_op = ast_stack[ast_stack.size() - 2].second;
+            if (get_op_pri(lhs_op.type) >= get_op_pri(rhs_op.type)) {
+                BinaryOpAst *ast = new BinaryOpAst;
+                ast->op = lhs_op;
+                ast->lhs = ast_stack[ast_stack.size() - 2].first;
+                ast->rhs = ast_stack.back().first;
+                ast_stack.pop_back();
+                ast_stack.back().first = ast;
+                ast_stack.back().second = rhs_op;
+            } else {
+                break;
+            }
+        }
+    }
+    return ast_stack[0].first;
+}
+
 static void parse_param_list(const std::vector<Token> &tokens,
-                             std::vector<ParamAssignAst *> &params)
+                             std::vector<BinaryOpAst *> &params)
 {
     while (1) {
-        ParamAssignAst *ast = new ParamAssignAst;
+        BinaryOpAst *ast = new BinaryOpAst;
 
         expect(tokens, TOKEN_TYPE_IDENTIFIER);
-        ast->param_name = tokens[pos].idx;
+        IdAst *id_ast = new IdAst;
+        id_ast->name = tokens[pos].idx;
+        ast->lhs = id_ast;
         pos++;
 
         expect(tokens, TOKEN_TYPE_EQUAL);
+        ast->op = tokens[pos];
         pos++;
 
-        expect(tokens, TOKEN_TYPE_NUMBER);
-        ast->value = tokens[pos].idx;
-        pos++;
+        ast->rhs = parse_binary_op(tokens);
 
         params.push_back(ast);
         if (tokens[pos].type == TOKEN_TYPE_COMMA) {
@@ -92,18 +174,19 @@ static void parse_param_list(const std::vector<Token> &tokens,
 static void parse_assign(const std::vector<Token> &tokens,
                          std::vector<Ast *> &asts)
 {
-    AssignAst *ast = new AssignAst;
+    BinaryOpAst *ast = new BinaryOpAst;
 
     expect(tokens, TOKEN_TYPE_IDENTIFIER);
-    ast->lhs = tokens[pos].idx;
+    IdAst *id_ast = new IdAst;
+    id_ast->name = tokens[pos].idx;
+    ast->lhs = id_ast;
     pos++;
 
-    expect(tokens, TOKEN_TYPE_ASSIGN);
+    expect(tokens, TOKEN_TYPE_EQUAL);
+    ast->op = tokens[pos];
     pos++;
 
-    expect(tokens, TOKEN_TYPE_IDENTIFIER);
-    ast->rhs = tokens[pos].idx;
-    pos++;
+    ast->rhs = parse_binary_op(tokens);
 
     asts.push_back(ast);
 

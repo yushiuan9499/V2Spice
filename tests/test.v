@@ -35,3 +35,12 @@ endmodule
 
 module no_port();
 endmodule
+
+module lots_of_binary_op();
+n_18 M1 #(W=1u*2,L=18u/2u*3u+1u)(
+    .D(a),
+    .G(b),
+    .S(c),
+    .B(d)
+);
+endmodule
