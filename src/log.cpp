@@ -20,7 +20,7 @@
 std::string s;
 
 static LogLevel log_level = LOG_LEVEL_INFO;
-static std::vector<int> newlines;
+static std::vector<unsigned> newlines;
 static int _error_count = 0;
 
 /*
@@ -31,7 +31,7 @@ void init_log()
 {
     _error_count = 0;
     newlines.clear();
-    newlines.push_back(-1);
+    newlines.push_back(0);
     /* Compute the positions of newlines in s for error reporting. */
     for (unsigned i = 0; i < s.size(); i++) {
         if (s[i] == '\n') {
@@ -48,16 +48,16 @@ static void log(const char *title,
 {
     int line = upper_bound(newlines.begin(), newlines.end(), idx.start) -
                newlines.begin();
+    unsigned line_start = line == 1 ? 0 : newlines[line - 1] + 1;
     /* <Line number>:<Column number>: <@title_color><@title>: ENDC <@msg>*/
-    std::cerr << line << ":" << idx.start - newlines[line - 1] + 1 << ": "
+    std::cerr << line << ":" << idx.start - line_start + 1 << ": "
               << title_color << title << ENDC << " " << msg << "\n";
 
     /* Suppose line number won't greater than 9999. */
     std::cerr << std::setw(5) << line << " | ";
 
     /* Print the line with highlight. */
-    std::cerr << s.substr(line == 0 ? 0 : newlines[line - 1] + 1,
-                          idx.start - (newlines[line - 1] + 1));
+    std::cerr << s.substr(line_start, idx.start - line_start);
     std::cerr << title_color << s.substr(idx.start, idx.len) << ENDC;
     std::cerr << s.substr(idx.start + idx.len,
                           newlines[line] - (idx.start + idx.len))
@@ -65,8 +65,7 @@ static void log(const char *title,
 
     /* Print a pointer to the error position. */
     std::cerr << "      | ";
-    for (unsigned i = line == 0 ? 0 : newlines[line - 1] + 1; i < idx.start;
-         i++) {
+    for (unsigned i = line_start; i < idx.start; i++) {
         std::cerr << " ";
     }
     std::cerr << title_color;
