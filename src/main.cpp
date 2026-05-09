@@ -20,6 +20,9 @@ int main(int argc, char *argv[])
     const char *input_file = argv[1];
     getline(std::ifstream(input_file), s, '\0');
     init_log();
+#if VERBOSE
+    set_log_level(LOG_LEVEL_DEBUG);
+#endif
     std::vector<Token> tokens = lex(s);
     if (error_count() > 0) {
         std::cerr << error_count() << " error(s) found.\n";
