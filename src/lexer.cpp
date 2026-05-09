@@ -6,24 +6,25 @@
 
 static unsigned pos;
 
-struct Trie {
-    std::map<unsigned int, Trie *> children;
+struct KeywordTrie {
+    std::map<unsigned int, KeywordTrie *> children;
     TokenType type;
 
-    Trie() : type(TOKEN_TYPE_IDENTIFIER) {}
+    KeywordTrie() : type(TOKEN_TYPE_IDENTIFIER) {}
 };
 
-static Trie *root;
-__attribute__((constructor)) static Trie *build_keyword_trie()
+static KeywordTrie *keyword_root;
+__attribute__((constructor)) static KeywordTrie *build_keyword_trie()
 {
-    root = new Trie();
-    const std::pair<const char *, TokenType> keywords[] = {
-        {"assign", TOKEN_TYPE_ASSIGN},       {"module", TOKEN_TYPE_MODULE},
-        {"endmodule", TOKEN_TYPE_ENDMODULE}, {"wire", TOKEN_TYPE_WIRE},
-        {"parameter", TOKEN_TYPE_PARAM},
-    };
+    keyword_root = new KeywordTrie();
+    std::pair<const char *, TokenType>
+        keywords[TOKEN_TYPE_KEYWORD_END - TOKEN_TYPE_PUNCT_END];
+    for (int i = 0; i < TOKEN_TYPE_KEYWORD_END - TOKEN_TYPE_PUNCT_END; i++) {
+        keywords[i] = {token_str[TOKEN_TYPE_PUNCT_END + 1 + i],
+                       (TokenType) (TOKEN_TYPE_PUNCT_END + 1 + i)};
+    }
     for (const auto &kw : keywords) {
-        Trie *node = root;
+        KeywordTrie *node = keyword_root;
         unsigned int v = 0;
         int i = 0;
         for (const char *c = kw.first; *c;) {
@@ -32,7 +33,7 @@ __attribute__((constructor)) static Trie *build_keyword_trie()
             c++;
             if (i % 4 == 0) {
                 if (!node->children.count(v)) {
-                    node->children[v] = new Trie();
+                    node->children[v] = new KeywordTrie();
                 }
                 node = node->children[v];
                 v = 0;
@@ -40,13 +41,42 @@ __attribute__((constructor)) static Trie *build_keyword_trie()
         }
         if (v) {
             if (!node->children.count(v)) {
-                node->children[v] = new Trie();
+                node->children[v] = new KeywordTrie();
             }
             node = node->children[v];
         }
         node->type = kw.second;
     }
-    return root;
+    return keyword_root;
+}
+
+struct PunctTrie {
+    std::map<char, PunctTrie *> children;
+    TokenType type;
+
+    PunctTrie() : type(TOKEN_TYPE_NONE) {}
+};
+
+PunctTrie *punct_root;
+__attribute__((constructor)) static void build_punct_trie()
+{
+    punct_root = new PunctTrie();
+    std::pair<const char *, TokenType>
+        puncts[TOKEN_TYPE_PUNCT_END - TOKEN_TYPE_EOF];
+    for (int i = 0; i < TOKEN_TYPE_PUNCT_END - TOKEN_TYPE_EOF; i++) {
+        puncts[i] = {token_str[TOKEN_TYPE_EOF + 1 + i],
+                     (TokenType) (TOKEN_TYPE_EOF + 1 + i)};
+    }
+    for (const auto &p : puncts) {
+        PunctTrie *node = punct_root;
+        for (const char *c = p.first; *c; c++) {
+            if (!node->children.count(*c)) {
+                node->children[*c] = new PunctTrie();
+            }
+            node = node->children[*c];
+        }
+        node->type = p.second;
+    }
 }
 
 static void skip_whitespace(const std::string &input)
@@ -97,74 +127,62 @@ std::vector<Token> lex(const std::string &input)
                 continue;
             }
         }
-        if (input[pos] == '(') {
-            tokens.push_back({pos, 1, TOKEN_TYPE_LPAREN});
-            pos++;
+
+        if (isdigit(input[pos])) {
+            /* Number */
+            unsigned start = pos;
+            while (pos < input.size() &&
+                   (isalnum(input[pos]) || input[pos] == '.')) {
+                pos++;
+            }
+            tokens.push_back(
+                {start, (unsigned short) (pos - start), TOKEN_TYPE_NUMBER});
             continue;
         }
-        if (input[pos] == ')') {
-            tokens.push_back({pos, 1, TOKEN_TYPE_RPAREN});
-            pos++;
-            continue;
-        }
-        if (input[pos] == ';') {
-            tokens.push_back({pos, 1, TOKEN_TYPE_SEMICOLON});
-            pos++;
-            continue;
-        }
-        if (input[pos] == '=') {
-            tokens.push_back({pos, 1, TOKEN_TYPE_EQUAL});
-            pos++;
-            continue;
-        }
-        if (input[pos] == '#') {
-            tokens.push_back({pos, 1, TOKEN_TYPE_HASHTAG});
-            pos++;
-            continue;
-        }
-        if (input[pos] == ',') {
-            tokens.push_back({pos, 1, TOKEN_TYPE_COMMA});
-            pos++;
-            continue;
-        }
-        if (input[pos] == '.') {
-            tokens.push_back({pos, 1, TOKEN_TYPE_DOT});
-            pos++;
-            continue;
-        }
-        unsigned start = pos;
-        Trie *node = root;
-        unsigned int v = 0;
-        while (pos < input.size() && (isalnum(input[pos]) ||
-                                      input[pos] == '_' || input[pos] == '.')) {
-            v = (v << 8) | (unsigned char) input[pos];
-            pos++;
-            if ((pos - start) % 4 == 0) {
+
+        if (isalpha(input[pos]) || input[pos] == '_') {
+            unsigned start = pos;
+            KeywordTrie *node = keyword_root;
+            unsigned int v = 0;
+            while (pos < input.size() &&
+                   (isalnum(input[pos]) || input[pos] == '_' ||
+                    input[pos] == '.')) {
+                v = (v << 8) | (unsigned char) input[pos];
+                pos++;
+                if ((pos - start) % 4 == 0) {
+                    if (node && node->children.count(v)) {
+                        node = node->children[v];
+                    } else {
+                        node = nullptr;
+                    }
+                    v = 0;
+                }
+            }
+            if (v) {
                 if (node && node->children.count(v)) {
                     node = node->children[v];
                 } else {
                     node = nullptr;
                 }
-                v = 0;
             }
+            tokens.push_back({start, (unsigned short) (pos - start),
+                              node ? node->type : TOKEN_TYPE_IDENTIFIER});
+            continue;
         }
-        if (v) {
-            if (node && node->children.count(v)) {
-                node = node->children[v];
-            } else {
-                node = nullptr;
-            }
+
+        unsigned start = pos;
+        PunctTrie *node = punct_root;
+        while (pos < input.size() && node->children.count(input[pos])) {
+            node = node->children[input[pos]];
+            pos++;
         }
-        if (pos < input.size() && input[pos] != '(' && input[pos] != ')' &&
-            input[pos] != ';' && input[pos] != '=' && input[pos] != '#' &&
-            input[pos] != ',' && input[pos] != '.' && !isspace(input[pos])) {
+        if (node->type == TOKEN_TYPE_NONE || pos == start) {
             std::string msg = "Unexpected character '";
             msg += input[pos];
             msg += "' at position " + std::to_string(pos);
             critical({pos, 1}, msg.c_str());
         }
-        tokens.push_back({start, (unsigned short) (pos - start),
-                          node ? node->type : TOKEN_TYPE_IDENTIFIER});
+        tokens.push_back({start, (unsigned short) (pos - start), node->type});
     }
     tokens.push_back({(unsigned) input.size(), 0, TOKEN_TYPE_EOF});
     return tokens;

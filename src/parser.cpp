@@ -15,7 +15,8 @@ static void expect(const std::vector<Token> &tokens,
         std::string s = "expected token type ";
         s += token_str[type];
         s += " but got ";
-        if (tokens[pos].type == TOKEN_TYPE_IDENTIFIER) {
+        if (tokens[pos].type == TOKEN_TYPE_IDENTIFIER ||
+            tokens[pos].type == TOKEN_TYPE_NUMBER) {
             s += " \"" +
                  std::string(
                      s.substr(tokens[pos].idx.start, tokens[pos].idx.len)) +
@@ -35,7 +36,8 @@ static void unexpected_token(const std::vector<Token> &tokens,
                              bool is_critical = true)
 {
     std::string s = "unexpected token type ";
-    if (tokens[pos].type == TOKEN_TYPE_IDENTIFIER) {
+    if (tokens[pos].type == TOKEN_TYPE_IDENTIFIER ||
+        tokens[pos].type == TOKEN_TYPE_NUMBER) {
         s += " \"" +
              std::string(s.substr(tokens[pos].idx.start, tokens[pos].idx.len)) +
              "\"";
@@ -71,7 +73,7 @@ static void parse_param_list(const std::vector<Token> &tokens,
         expect(tokens, TOKEN_TYPE_EQUAL);
         pos++;
 
-        expect(tokens, TOKEN_TYPE_IDENTIFIER);
+        expect(tokens, TOKEN_TYPE_NUMBER);
         ast->value = tokens[pos].idx;
         pos++;
 
