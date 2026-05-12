@@ -8,7 +8,7 @@ enum TokenType {
     TOKEN_TYPE_EOF,
     TOKEN_TYPE_LPAREN,     // (
     TOKEN_TYPE_RPAREN,     // )
-    TOEKN_TYPE_LBRACKET,   // [
+    TOKEN_TYPE_LBRACKET,   // [
     TOKEN_TYPE_RBRACKET,   // ]
     TOKEN_TYPE_SEMICOLON,  // ;
     TOKEN_TYPE_HASHTAG,    // #
@@ -53,7 +53,7 @@ static const char *token_str[TOKEN_TYPE_NR] = {
     [TOKEN_TYPE_EOF] = "<EOF>",
     [TOKEN_TYPE_LPAREN] = "(",
     [TOKEN_TYPE_RPAREN] = ")",
-    [TOEKN_TYPE_LBRACKET] = "[",
+    [TOKEN_TYPE_LBRACKET] = "[",
     [TOKEN_TYPE_RBRACKET] = "]",
     [TOKEN_TYPE_SEMICOLON] = ";",
     [TOKEN_TYPE_HASHTAG] = "#",
@@ -101,9 +101,11 @@ enum AstType {
     AST_TYPE_MODULE_DECL,
     AST_TYPE_MODULE_INST,
     AST_TYPE_WIRE_DECL,
+    AST_TYPE_SUBSCRIPT,
     AST_TYPE_BINARY_OP,
     AST_TYPE_ID,
     AST_TYPE_NUMBER,
+    AST_TYPE_UNARY_OP,
     AST_TYPE_NR
 };
 struct Ast {
@@ -122,9 +124,35 @@ struct NumberAst : public Ast {
     union {
         long long int_value;
         double float_value;
-        Idx pos;
     };
+    Idx pos;
     NumberAst() : Ast{AST_TYPE_NUMBER} {}
+};
+
+struct UnaryAst : public Ast {
+    Token op;
+    Ast *operand;
+    UnaryAst() : Ast{AST_TYPE_UNARY_OP}, operand(nullptr) {}
+    ~UnaryAst() { delete operand; }
+};
+
+struct SubscriptAst : public Ast {
+    Ast *array;
+    Ast *index1;
+    Ast *index2;
+    SubscriptAst()
+        : Ast{AST_TYPE_SUBSCRIPT},
+          array(nullptr),
+          index1(nullptr),
+          index2(nullptr)
+    {
+    }
+    ~SubscriptAst()
+    {
+        delete array;
+        delete index1;
+        delete index2;
+    }
 };
 
 struct BinaryOpAst : public Ast {
@@ -167,10 +195,10 @@ struct ModuleInstAst : public Ast {
     bool use_named_port;
     std::vector<BinaryOpAst *> params;
     union Port {
-        Idx positional;
+        Ast *positional;
         struct {
             Idx port_name;
-            Idx wire_name;
+            Ast *expr;
         } named;
     };
     std::vector<Port> ports;

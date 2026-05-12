@@ -8,17 +8,36 @@ static void print_module_decl(const Ast *ast);
 static void print_module_inst(const Ast *ast);
 static void print_wire_decl(const Ast *ast);
 static void print_assign(const Ast *ast);
-
-static void (*print_func[AST_TYPE_NR])(const Ast *) = {
-    [AST_TYPE_NONE] = nullptr,
-    [AST_TYPE_MODULE_DECL] = print_module_decl,
-    [AST_TYPE_MODULE_INST] = print_module_inst,
-    [AST_TYPE_WIRE_DECL] = print_wire_decl,
-};
+static void print_subscript(const Ast *ast);
 
 extern std::string s;
 static bool in_global;
 
+const Ast *print_generic(const Ast *ast)
+{
+    switch (ast->type) {
+    case AST_TYPE_MODULE_DECL:
+        print_module_decl(ast);
+        break;
+    case AST_TYPE_MODULE_INST:
+        print_module_inst(ast);
+        break;
+    case AST_TYPE_WIRE_DECL:
+        print_wire_decl(ast);
+        break;
+    case AST_TYPE_SUBSCRIPT:
+        print_subscript(ast);
+        break;
+    case AST_TYPE_ID:
+        std::cout << s.substr(static_cast<const IdAst *>(ast)->name.start,
+                              static_cast<const IdAst *>(ast)->name.len);
+        break;
+    default:
+        std::cerr << "Unsupported AST type in print: " << ast->type << "\n";
+        break;
+    }
+    return ast;
+}
 
 static char exp_to_char(signed char exp)
 {
@@ -69,6 +88,23 @@ static void print_number(NumberAst *ast)
     }
 }
 
+static void print_subscript(const Ast *tmp_ast)
+{
+    SubscriptAst *ast = (SubscriptAst *) tmp_ast;
+    if (ast->array->type != AST_TYPE_ID) {
+        print_subscript(ast);
+    } else {
+        IdAst *id = (IdAst *) ast->array;
+        std::string name = s.substr(id->name.start, id->name.len);
+        std::cout << name;
+    }
+    std::cout << "_arr";
+    std::cout << ((NumberAst *) ast->index1)->int_value;
+    if (ast->index2) {
+        std::cout << "t" << ((NumberAst *) ast->index2)->int_value;
+    }
+}
+
 static void print_module_decl(const Ast *tmp_ast)
 {
     ModuleDeclAst *ast = (ModuleDeclAst *) tmp_ast;
@@ -105,7 +141,7 @@ static void print_module_decl(const Ast *tmp_ast)
     }
     std::cout << "\n";
     for (const Ast *ast : ast->body) {
-        print_func[ast->type](ast);
+        print_generic(ast);
     }
     std::cout << ".ends\n\n";
 }
@@ -119,9 +155,8 @@ static void print_module_inst(const Ast *tmp_ast)
         s.substr(ast->instance_name.start, ast->instance_name.len);
     std::cout << instance_name;
     for (const ModuleInstAst::Port port : ast->ports) {
-        std::string wire_name =
-            s.substr(port.positional.start, port.positional.len);
-        std::cout << " " << wire_name;
+        std::cout << " ";
+        print_generic(port.positional);
     }
     std::cout << " " << module_name;
     for (const BinaryOpAst *param : ast->params) {
@@ -189,6 +224,6 @@ void print(const std::vector<Ast *> &asts)
 {
     for (const Ast *ast : asts) {
         in_global = true;
-        print_func[ast->type](ast);
+        print_generic(ast);
     }
 }
