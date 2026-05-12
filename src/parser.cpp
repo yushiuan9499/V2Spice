@@ -6,6 +6,8 @@
 
 static unsigned pos;
 
+static Ast *parse_binary_op(const std::vector<Token> &tokens);
+
 extern std::string s;
 static void expect(const std::vector<Token> &tokens,
                    TokenType type,
@@ -60,6 +62,66 @@ static bool accept(const std::vector<Token> &tokens, TokenType type)
     return false;
 }
 
+static Ast *parse_primary(const std::vector<Token> &tokens)
+{
+    if (accept(tokens, TOKEN_TYPE_LPAREN)) {
+        Ast *e = parse_binary_op(tokens);
+        expect(tokens, TOKEN_TYPE_RPAREN);
+        pos++;  // Skip ')'
+        return e;
+    }
+    if (tokens[pos].type == TOKEN_TYPE_IDENTIFIER) {
+        debug(tokens[pos].idx, "parse identifier");
+        IdAst *ast = new IdAst;
+        ast->name = tokens[pos].idx;
+        pos++;
+        return ast;
+    }
+    if (tokens[pos].type == TOKEN_TYPE_NUMBER) {
+        debug(tokens[pos].idx, "parse number");
+        NumberAst *ast = new NumberAst;
+        ast->pos = tokens[pos].idx;
+        pos++;
+        return ast;
+    }
+    unexpected_token(tokens);
+    return nullptr;  // Unreachable
+}
+
+static Ast *parse_subscript(const std::vector<Token> &tokens)
+{
+    Ast *e = parse_primary(tokens);
+    while (accept(tokens, TOKEN_TYPE_LBRACKET)) {
+        SubscriptAst *ast = new SubscriptAst;
+        ast->array = e;
+        ast->index1 = parse_binary_op(tokens);
+        if (accept(tokens, TOKEN_TYPE_COLON)) {
+            ast->index2 = parse_binary_op(tokens);
+        } else {
+            ast->index2 = nullptr;
+        }
+        expect(tokens, TOKEN_TYPE_RBRACKET);
+        pos++;  // Skip ']'
+        e = ast;
+    }
+    return e;
+}
+
+static Ast *parse_unary_op(const std::vector<Token> &tokens)
+{
+    Ast *e;
+    Ast **now = &e;
+    while (accept(tokens, TOKEN_TYPE_PLUS) ||
+           accept(tokens, TOKEN_TYPE_MINUS) || accept(tokens, TOKEN_TYPE_NOT)) {
+        UnaryAst *ast = new UnaryAst;
+        ast->op = tokens[pos - 1];
+        *now = ast;
+        now = &ast->operand;
+    }
+    *now = parse_subscript(tokens);
+    return e;
+}
+
 enum OpPri {
     OP_PRI_NONE,
     OP_PRI_OR,        // ||
@@ -101,20 +163,7 @@ static Ast *parse_binary_op(const std::vector<Token> &tokens)
     std::vector<std::pair<Ast *, Token>> ast_stack;
     bool done = false;
     while (!done) {
-        Ast *e;
-        if (tokens[pos].type == TOKEN_TYPE_IDENTIFIER) {
-            IdAst *ast = new IdAst;
-            ast->name = tokens[pos].idx;
-            pos++;
-            e = ast;
-        } else if (tokens[pos].type == TOKEN_TYPE_NUMBER) {
-            NumberAst *ast = new NumberAst;
-            ast->pos = tokens[pos].idx;
-            e = ast;
-            pos++;
-        } else {
-            unexpected_token(tokens);
-        }
+        Ast *e = parse_unary_op(tokens);
         ast_stack.emplace_back(e, tokens[pos]);
         if (get_op_pri(tokens[pos].type) != OP_PRI_NONE) {
             /* We only consume binary operators */
@@ -138,6 +187,7 @@ static Ast *parse_binary_op(const std::vector<Token> &tokens)
             }
         }
     }
+    debug(tokens[pos].idx, "parsed binary op");
     return ast_stack[0].first;
 }
 
@@ -202,8 +252,6 @@ static void parse_wire_decl(const std::vector<Token> &tokens,
     ast->name = tokens[pos].idx;
     pos++;
 
-    asts.push_back(ast);
-
     expect(tokens, TOKEN_TYPE_SEMICOLON);
     asts.push_back(ast);
     pos++;
@@ -240,9 +288,7 @@ static void parse_module_inst(const std::vector<Token> &tokens,
             pos++;
             expect(tokens, TOKEN_TYPE_LPAREN);
             pos++;  // Skip '('
-            expect(tokens, TOKEN_TYPE_IDENTIFIER);
-            port.named.wire_name = tokens[pos].idx;
-            pos++;
+            port.named.expr = parse_binary_op(tokens);
             expect(tokens, TOKEN_TYPE_RPAREN);
             pos++;  // Skip ')'
             ast->ports.push_back(port);
@@ -258,7 +304,7 @@ static void parse_module_inst(const std::vector<Token> &tokens,
         while (1) {
             expect(tokens, TOKEN_TYPE_IDENTIFIER);
             ModuleInstAst::Port port;
-            port.positional = tokens[pos].idx;
+            port.positional = parse_binary_op(tokens);
             ast->ports.push_back(port);
             if (tokens[pos].type == TOKEN_TYPE_COMMA) {
                 pos++;  // Skip ','

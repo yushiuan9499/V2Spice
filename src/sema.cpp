@@ -18,6 +18,8 @@ union Number {
 };
 static std::map<std::string, std::pair<bool, Number>> constant_table;
 
+static Ast *sema_generic(Ast *ast, bool may_be_genvar = false);
+
 static signed char parse_exp(const Idx &pos)
 {
     if (s[pos.start] == 'p') {
@@ -56,6 +58,7 @@ static double mul_pow10(double x, signed char exp)
 }
 static Ast *sema_number(NumberAst *ast, bool is_genvar)
 {
+    std::string ss = std::to_string(is_genvar);
     Idx pos = ast->pos;
     ast->is_float = !is_genvar;
     bool after_dot = false;
@@ -113,22 +116,62 @@ static Ast *sema_id(IdAst *ast)
     return ast;
 }
 
-static Ast *sema_binary_op(BinaryOpAst *ast)
+static Ast *sema_subscript(SubscriptAst *ast, bool may_be_genvar)
 {
-    if (ast->lhs->type == AST_TYPE_BINARY_OP) {
-        ast->lhs = sema_binary_op(static_cast<BinaryOpAst *>(ast->lhs));
-    } else if (ast->lhs->type == AST_TYPE_ID) {
-        ast->lhs = sema_id(static_cast<IdAst *>(ast->lhs));
-    } else if (ast->lhs->type == AST_TYPE_NUMBER) {
-        ast->lhs = sema_number(static_cast<NumberAst *>(ast->lhs), false);
+    ast->array = sema_generic(ast->array, may_be_genvar);
+    if (ast->array->type != AST_TYPE_ID &&
+        ast->array->type != AST_TYPE_SUBSCRIPT) {
+        /* TODO: */
+        exit(2);
     }
-    if (ast->rhs->type == AST_TYPE_BINARY_OP) {
-        ast->rhs = sema_binary_op(static_cast<BinaryOpAst *>(ast->rhs));
-    } else if (ast->rhs->type == AST_TYPE_ID) {
-        ast->rhs = sema_id(static_cast<IdAst *>(ast->rhs));
-    } else if (ast->rhs->type == AST_TYPE_NUMBER) {
-        ast->rhs = sema_number(static_cast<NumberAst *>(ast->rhs), false);
+    ast->index1 = sema_generic(ast->index1, true);
+    if (ast->index1->type != AST_TYPE_NUMBER) {
+        /* TODO: */
+        exit(2);
     }
+    if (ast->index2) {
+        ast->index2 = sema_generic(ast->index2, true);
+        if (ast->index1->type != AST_TYPE_NUMBER) {
+            /* TODO: */
+            exit(2);
+        }
+    }
+    return ast;
+}
+
+static Ast *sema_unary_op(UnaryAst *ast, bool may_be_genvar)
+{
+    ast->operand = sema_generic(ast->operand, may_be_genvar);
+    if (ast->operand->type == AST_TYPE_BINARY_OP) {
+        /* If the operand is a binary operator, it means that is an assign
+         * expression */
+        critical(ast->op.idx,
+                 "Operand of unary operator cannot be an assign expression.");
+    } else if (ast->operand->type == AST_TYPE_ID ||
+               ast->operand->type == AST_TYPE_SUBSCRIPT) {
+        critical(ast->op.idx, "Operand of unary operator cannot be wire.");
+    }
+    NumberAst *operand = static_cast<NumberAst *>(ast->operand);
+    switch (ast->op.type) {
+    case TOKEN_TYPE_PLUS:
+        return operand;
+    case TOKEN_TYPE_MINUS:
+        if (operand->is_float) {
+            operand->float_value = -operand->float_value;
+        } else {
+            operand->int_value = -operand->int_value;
+        }
+        return operand;
+    default:
+        internal_error(ast->op.idx, "Unexpected unary operator.");
+    }
+    return nullptr;  // Unreachable
+}
+
+static Ast *sema_binary_op(BinaryOpAst *ast, bool may_be_genvar)
+{
+    ast->lhs = sema_generic(ast->lhs, may_be_genvar);
+    ast->rhs = sema_generic(ast->rhs, may_be_genvar);
     bool has_error = false;
     if (ast->lhs->type == AST_TYPE_BINARY_OP) {
         has_error = true;
@@ -141,7 +184,9 @@ static Ast *sema_binary_op(BinaryOpAst *ast)
         has_error = true;
         error(ast->op.idx, "Cannot assign to a number.");
     }
-    if (ast->lhs->type == AST_TYPE_ID && ast->op.type != TOKEN_TYPE_EQUAL) {
+    if ((ast->lhs->type == AST_TYPE_ID ||
+         ast->lhs->type == AST_TYPE_SUBSCRIPT) &&
+        ast->op.type != TOKEN_TYPE_EQUAL) {
         has_error = true;
         error(ast->op.idx,
               "Only assignment operator is allowed for identifiers.");
@@ -154,10 +199,18 @@ static Ast *sema_binary_op(BinaryOpAst *ast)
         error(ast->op.idx,
               "Right-hand side expression cannot be a assign expression.");
     }
-    if (ast->rhs->type == AST_TYPE_ID && ast->op.type != TOKEN_TYPE_EQUAL) {
+    if ((ast->rhs->type == AST_TYPE_ID ||
+         ast->rhs->type == AST_TYPE_SUBSCRIPT) &&
+        ast->op.type != TOKEN_TYPE_EQUAL) {
         has_error = true;
         error(ast->op.idx,
               "Only assignment operator is allowed for identifiers.");
+    }
+    if (ast->rhs->type != AST_TYPE_NUMBER && ast->op.type != TOKEN_TYPE_EQUAL) {
+        std::string msg =
+            "Unexpected right-hand side expression for operator '";
+        msg += token_str[ast->op.type];
+        internal_error(ast->op.idx, msg.c_str());
     }
     if (has_error) {
         exit(1);
@@ -394,10 +447,21 @@ static Ast *sema_module_inst(ModuleInstAst *ast)
         return ast;
     }
     if (!ast->use_named_port) {
+        for (ModuleInstAst::Port &port : ast->ports) {
+            port.positional = sema_generic(port.positional);
+            if (port.positional->type != AST_TYPE_ID &&
+                port.positional->type != AST_TYPE_SUBSCRIPT) {
+                std::string msg = "Port " +
+                                  std::to_string(&port - &ast->ports[0]) +
+                                  " must be connected to a wire.";
+                std::cerr << "Port " << msg << "\n";
+                exit(1);
+            }
+        }
         return ast;
     }
-    std::vector<std::pair<short, Idx>> ports;
-    for (const ModuleInstAst::Port &port : ast->ports) {
+    std::vector<std::pair<short, Ast *>> ports;
+    for (ModuleInstAst::Port &port : ast->ports) {
         std::string port_name =
             s.substr(port.named.port_name.start, port.named.port_name.len);
         if (!module_port_indices[module_table[module_name]].count(port_name)) {
@@ -407,9 +471,17 @@ static Ast *sema_module_inst(ModuleInstAst *ast)
             error(port.named.port_name, msg.c_str());
             return ast;
         }
+        port.named.expr = sema_generic(port.named.expr);
+        if (port.named.expr->type != AST_TYPE_ID &&
+            port.named.expr->type != AST_TYPE_SUBSCRIPT) {
+            std::string msg =
+                "Port '" + port_name + "' must be connected to a wire.";
+            std::cerr << "Port " << msg << "\n";
+            exit(1);
+        }
         ports.push_back(
             {module_port_indices[module_table[module_name]][port_name],
-             port.named.wire_name});
+             port.named.expr});
     }
     if (ports.size() != module_table[module_name]->ports.size()) {
         std::string msg =
@@ -420,16 +492,14 @@ static Ast *sema_module_inst(ModuleInstAst *ast)
         return ast;
     }
     sort(ports.begin(), ports.end(),
-         [](const std::pair<short, Idx> &a, const std::pair<short, Idx> &b) {
-             return a.first < b.first;
-         });
+         [](const std::pair<short, Ast *> &a,
+            const std::pair<short, Ast *> &b) { return a.first < b.first; });
     ast->use_named_port = false;
     for (size_t i = 0; i < ports.size(); i++) {
         ast->ports[i].positional = ports[i].second;
     }
     for (size_t i = 0; i < ast->params.size(); i++) {
-        BinaryOpAst *param = ast->params[i];
-        ast->params[i] = (BinaryOpAst *) sema_binary_op(param);
+        ast->params[i] = (BinaryOpAst *) sema_generic(ast->params[i]);
     }
     return ast;
 }
@@ -443,9 +513,7 @@ static Ast *sema_module_decl(ModuleDeclAst *ast)
         return ast;
     }
     for (Ast *&stmt : ast->body) {
-        if (stmt->type == AST_TYPE_MODULE_INST) {
-            stmt = sema_module_inst(static_cast<ModuleInstAst *>(stmt));
-        }
+        stmt = sema_generic(stmt);
     }
     module_table[name] = ast;
     for (size_t i = 0; i < ast->ports.size(); i++) {
@@ -460,10 +528,33 @@ static Ast *sema_module_decl(ModuleDeclAst *ast)
         module_port_indices[ast][port_name] = i;
     }
     for (size_t i = 0; i < ast->params.size(); i++) {
-        BinaryOpAst *param = ast->params[i];
-        ast->params[i] = (BinaryOpAst *) sema_binary_op(param);
+        ast->params[i] = (BinaryOpAst *) sema_generic(ast->params[i]);
     }
     return ast;
+}
+
+inline static Ast *sema_generic(Ast *ast, bool may_be_genvar)
+{
+    switch (ast->type) {
+    case AST_TYPE_BINARY_OP:
+        return sema_binary_op(static_cast<BinaryOpAst *>(ast), may_be_genvar);
+    case AST_TYPE_ID:
+        return sema_id(static_cast<IdAst *>(ast));
+    case AST_TYPE_NUMBER:
+        return sema_number(static_cast<NumberAst *>(ast), may_be_genvar);
+    case AST_TYPE_MODULE_DECL:
+        return sema_module_decl(static_cast<ModuleDeclAst *>(ast));
+    case AST_TYPE_UNARY_OP:
+        return sema_unary_op(static_cast<UnaryAst *>(ast), may_be_genvar);
+    case AST_TYPE_SUBSCRIPT:
+        return sema_subscript(static_cast<SubscriptAst *>(ast), may_be_genvar);
+    case AST_TYPE_MODULE_INST:
+        return sema_module_inst(static_cast<ModuleInstAst *>(ast));
+    case AST_TYPE_WIRE_DECL:
+        return ast;
+    default:
+        return ast;
+    }
 }
 
 std::vector<Ast *> sema(const std::vector<Ast *> &asts)
@@ -471,12 +562,7 @@ std::vector<Ast *> sema(const std::vector<Ast *> &asts)
     module_table.clear();
     std::vector<Ast *> result;
     for (Ast *ast : asts) {
-        if (ast->type == AST_TYPE_MODULE_DECL) {
-            result.push_back(
-                sema_module_decl(static_cast<ModuleDeclAst *>(ast)));
-        } else if (ast->type == AST_TYPE_MODULE_INST) {
-            result.push_back(ast);
-        }
+        result.push_back(sema_generic(ast));
     }
     return result;
 }
