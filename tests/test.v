@@ -1,18 +1,3 @@
-module n_18 #(W=1u,L=18u)(
-    D,
-    G,
-    S,
-    B
-);
-endmodule
-
-module p_18 #(W=1u,L=18u)(
-    D,
-    G,
-    S,
-    B
-);
-endmodule
 module inv (
     in,
     out_1,

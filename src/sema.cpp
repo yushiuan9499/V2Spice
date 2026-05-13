@@ -455,13 +455,51 @@ static Ast *sema_binary_op(BinaryOpAst *ast, bool may_be_genvar)
     return ast;  // Unreachable
 }
 
+/* This is for R, L, C */
+static const std::map<std::string, short> passive_2port = {{"n1", 0},
+                                                           {"n2", 1}};
+static const std::map<std::string, short> mj_port = {{"D", 0},
+                                                     {"G", 1},
+                                                     {"S", 2},
+                                                     {"B", 3}};
+static const std::map<std::string, short> b_port = {{"C", 0},
+                                                    {"B", 1},
+                                                    {"E", 2},
+                                                    {"S", 3}};
+static const std::map<std::string, short> d_port = {{"P", 0}, {"N", 1}};
+
 static Ast *sema_module_inst(ModuleInstAst *ast)
 {
-    std::string module_name =
+    const std::map<std::string, short> *port_map = nullptr;
+    const std::string module_name =
         s.substr(ast->module_name.start, ast->module_name.len);
-    if (!module_table.count(module_name)) {
-        std::string msg = "Module '" + module_name + "' is not defined.";
-        error(ast->module_name, msg.c_str());
+    switch (toupper(s[ast->instance_name.start])) {
+    case 'R':
+    case 'L':
+    case 'C':
+        port_map = &passive_2port;
+        break;
+    case 'M':
+    case 'J':
+        port_map = &mj_port;
+        break;
+    case 'B':
+        port_map = &b_port;
+        break;
+    case 'D':
+        port_map = &d_port;
+        break;
+    case 'X':
+        if (!module_table.count(module_name)) {
+            std::string msg = "Module '" + module_name + "' is not defined.";
+            error(ast->module_name, msg.c_str());
+            return ast;
+        }
+        port_map = &module_port_indices[module_table[module_name]];
+        break;
+    default:
+        error(ast->instance_name,
+              "Instance name must start with R, L, C, M, J, B, D or X.");
         return ast;
     }
     if (!ast->use_named_port) {
@@ -482,7 +520,7 @@ static Ast *sema_module_inst(ModuleInstAst *ast)
     for (ModuleInstAst::Port &port : ast->ports) {
         std::string port_name =
             s.substr(port.named.port_name.start, port.named.port_name.len);
-        if (!module_port_indices[module_table[module_name]].count(port_name)) {
+        if (!port_map->count(port_name)) {
             std::string msg = "Port '" + port_name +
                               "' is not defined in module '" + module_name +
                               "'.";
@@ -497,11 +535,9 @@ static Ast *sema_module_inst(ModuleInstAst *ast)
             std::cerr << "Port " << msg << "\n";
             exit(1);
         }
-        ports.push_back(
-            {module_port_indices[module_table[module_name]][port_name],
-             port.named.expr});
+        ports.push_back({(*port_map).at(port_name), port.named.expr});
     }
-    if (ports.size() != module_table[module_name]->ports.size()) {
+    if (ports.size() != port_map->size()) {
         std::string msg =
             "Module '" + module_name + "' expects " +
             std::to_string(module_table[module_name]->ports.size()) +
