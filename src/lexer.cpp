@@ -128,6 +128,25 @@ std::vector<Token> lex(const std::string &input)
             }
         }
 
+        if (input[pos] == '"') {
+            /* String literal */
+            unsigned start = pos;
+            pos++;  // Skip the opening quote
+            while (pos < input.size()) {
+                if (input[pos] == '\\') {
+                    pos += 2;  // Skip escaped character
+                } else if (input[pos] == '"') {
+                    pos++;  // Skip the closing quote
+                    break;
+                } else {
+                    pos++;
+                }
+            }
+            tokens.push_back(
+                {start, (unsigned short) (pos - start), TOKEN_TYPE_STR});
+            continue;
+        }
+
         if (isdigit(input[pos])) {
             /* Number */
             unsigned start = pos;
@@ -137,6 +156,22 @@ std::vector<Token> lex(const std::string &input)
             }
             tokens.push_back(
                 {start, (unsigned short) (pos - start), TOKEN_TYPE_NUMBER});
+            continue;
+        }
+
+        if (input[pos] == '$') {
+            unsigned start = pos;
+            pos++;  // Skip the '$' character
+            while (pos < input.size() &&
+                   (isalnum(input[pos]) || input[pos] == '_')) {
+                pos++;
+            }
+            if (pos == start + 1) {
+                std::string msg = "Expected character after '$'";
+                critical({start, 1}, msg.c_str());
+            }
+            tokens.push_back({start, (unsigned short) (pos - start),
+                              TOKEN_TYPE_SYSTEM_FUNC});
             continue;
         }
 

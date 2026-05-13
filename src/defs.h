@@ -43,8 +43,10 @@ enum TokenType {
     TOKEN_TYPE_GENVAR,     // genvar
     TOKEN_TYPE_KEYWORD_END = TOKEN_TYPE_GENVAR,
 
-    TOKEN_TYPE_NUMBER,      // number literal
-    TOKEN_TYPE_IDENTIFIER,  // identifier
+    TOKEN_TYPE_NUMBER,       // number literal
+    TOKEN_TYPE_STR,          // string literal
+    TOKEN_TYPE_SYSTEM_FUNC,  // system function like $display
+    TOKEN_TYPE_IDENTIFIER,   // identifier
     TOKEN_TYPE_NR
 };
 
@@ -84,6 +86,8 @@ static const char *token_str[TOKEN_TYPE_NR] = {
     [TOKEN_TYPE_FOR] = "for",
     [TOKEN_TYPE_GENVAR] = "genvar",
     [TOKEN_TYPE_NUMBER] = "<number>",
+    [TOKEN_TYPE_STR] = "<string>",
+    [TOKEN_TYPE_SYSTEM_FUNC] = "<system function>",
     [TOKEN_TYPE_IDENTIFIER] = "<identifier>"};
 
 struct Idx {
@@ -106,6 +110,8 @@ enum AstType {
     AST_TYPE_ID,
     AST_TYPE_NUMBER,
     AST_TYPE_UNARY_OP,
+    AST_TYPE_STR,
+    AST_TYPE_SYSTEM_FUNC_CALL,
     AST_TYPE_NR
 };
 struct Ast {
@@ -117,6 +123,11 @@ struct Ast {
 struct IdAst : public Ast {
     Idx name;
     IdAst() : Ast{AST_TYPE_ID} {}
+};
+
+struct StrAst : public Ast {
+    Idx str;
+    StrAst() : Ast{AST_TYPE_STR} {}
 };
 
 struct NumberAst : public Ast {
@@ -170,6 +181,18 @@ struct BinaryOpAst : public Ast {
 struct WireDeclAst : public Ast {
     Idx name;
     WireDeclAst() : Ast{AST_TYPE_WIRE_DECL} {}
+};
+
+struct SystemFuncCallAst : public Ast {
+    Idx func_id;
+    std::vector<Ast *> args;
+    SystemFuncCallAst() : Ast{AST_TYPE_SYSTEM_FUNC_CALL} {}
+    ~SystemFuncCallAst()
+    {
+        for (auto arg : args) {
+            delete arg;
+        }
+    }
 };
 
 struct ModuleDeclAst : public Ast {

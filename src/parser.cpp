@@ -62,6 +62,29 @@ static bool accept(const std::vector<Token> &tokens, TokenType type)
     return false;
 }
 
+static SystemFuncCallAst *parse_system_func_call(
+    const std::vector<Token> &tokens)
+{
+    SystemFuncCallAst *ast = new SystemFuncCallAst;
+    ast->func_id = tokens[pos].idx;
+    pos++;
+
+    expect(tokens, TOKEN_TYPE_LPAREN);
+    pos++;  // Skip '('
+    while (tokens[pos].type != TOKEN_TYPE_RPAREN) {
+        ast->args.push_back(parse_binary_op(tokens));
+        if (tokens[pos].type == TOKEN_TYPE_COMMA) {
+            pos++;  // Skip ','
+            continue;
+        }
+        break;
+    }
+    expect(tokens, TOKEN_TYPE_RPAREN);
+    pos++;  // Skip ')'
+    return ast;
+}
+
+
 static Ast *parse_primary(const std::vector<Token> &tokens)
 {
     if (accept(tokens, TOKEN_TYPE_LPAREN)) {
@@ -83,6 +106,15 @@ static Ast *parse_primary(const std::vector<Token> &tokens)
         ast->pos = tokens[pos].idx;
         pos++;
         return ast;
+    }
+    if (tokens[pos].type == TOKEN_TYPE_STR) {
+        StrAst *ast = new StrAst;
+        ast->str = tokens[pos].idx;
+        pos++;
+        return ast;
+    }
+    if (tokens[pos].type == TOKEN_TYPE_SYSTEM_FUNC) {
+        return parse_system_func_call(tokens);
     }
     unexpected_token(tokens);
     return nullptr;  // Unreachable
@@ -384,6 +416,16 @@ std::vector<Ast *> parse(const std::vector<Token> &tokens)
         }
         if (accept(tokens, TOKEN_TYPE_WIRE)) {
             parse_wire_decl(tokens, asts);
+            continue;
+        }
+        if (tokens[pos].type == TOKEN_TYPE_SYSTEM_FUNC) {
+            /*
+             * This does not comply with verilog 2005 standard, but we allow
+             * system function call as a statement for simplicity.
+             */
+            asts.push_back(parse_system_func_call(tokens));
+            expect(tokens, TOKEN_TYPE_SEMICOLON);
+            pos++;  // Skip ';'
             continue;
         }
         unexpected_token(tokens);

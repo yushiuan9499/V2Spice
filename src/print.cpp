@@ -9,12 +9,16 @@ static void print_module_inst(const Ast *ast);
 static void print_wire_decl(const Ast *ast);
 static void print_assign(const Ast *ast);
 static void print_subscript(const Ast *ast);
+static void print_system_func_call(const Ast *ast);
 
 extern std::string s;
 static bool in_global;
 
-const Ast *print_generic(const Ast *ast)
+const void print_generic(const Ast *ast)
 {
+    if (!ast) {
+        return;
+    }
     switch (ast->type) {
     case AST_TYPE_MODULE_DECL:
         print_module_decl(ast);
@@ -32,11 +36,14 @@ const Ast *print_generic(const Ast *ast)
         std::cout << s.substr(static_cast<const IdAst *>(ast)->name.start,
                               static_cast<const IdAst *>(ast)->name.len);
         break;
+    case AST_TYPE_SYSTEM_FUNC_CALL:
+        print_system_func_call(ast);
+        break;
     default:
         std::cerr << "Unsupported AST type in print: " << ast->type << "\n";
         break;
     }
-    return ast;
+    return;
 }
 
 static char exp_to_char(signed char exp)
@@ -85,6 +92,43 @@ static void print_number(NumberAst *ast)
         std::cout << ast->float_value << exp_to_char(exp);
     } else {
         std::cout << ast->int_value;
+    }
+}
+
+static void print_system_func_call(const Ast *tmp_ast)
+{
+    SystemFuncCallAst *ast = (SystemFuncCallAst *) tmp_ast;
+    std::string func_name = s.substr(ast->func_id.start, ast->func_id.len);
+    if (func_name == "$spice") {
+        std::string code =
+            s.substr(static_cast<StrAst *>(ast->args[0])->str.start,
+                     static_cast<StrAst *>(ast->args[0])->str.len);
+        for (int i = 1; i < code.size() - 1; i++) {
+            if (code[i] == '\\') {
+                switch (code[i + 1]) {
+                case 'n':
+                    std::cout << "\n";
+                    break;
+                case 't':
+                    std::cout << "\t";
+                    break;
+                case '\\':
+                    std::cout << "\\";
+                    break;
+                case '"':
+                    std::cout << "\"";
+                    break;
+                default:
+                    critical(
+                        {static_cast<StrAst *>(ast->args[0])->str.start + i, 2},
+                        "Invalid escape sequence in $spice string literal.");
+                }
+                i++;
+            } else {
+                std::cout << code[i];
+            }
+        }
+        std::cout << "\n";
     }
 }
 

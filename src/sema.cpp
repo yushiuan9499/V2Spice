@@ -116,6 +116,24 @@ static Ast *sema_id(IdAst *ast)
     return ast;
 }
 
+static Ast *sema_system_func_call(SystemFuncCallAst *ast, bool may_be_genvar)
+{
+    std::string func_name = s.substr(ast->func_id.start, ast->func_id.len);
+    if (func_name == "$spice") {
+        if (ast->args.size() == 0) {
+            critical(ast->func_id, "$spice requires at least one argument.");
+        }
+        if (ast->args[0]->type != AST_TYPE_STR) {
+            critical(((StrAst *) ast->args[0])->str,
+                     "First argument of $spice must be a string literal.");
+        }
+        return ast;
+    }
+    warning(ast->func_id, "Unknown system function, ignored");
+    return nullptr;
+}
+
+
 static Ast *sema_subscript(SubscriptAst *ast, bool may_be_genvar)
 {
     ast->array = sema_generic(ast->array, may_be_genvar);
@@ -552,6 +570,9 @@ inline static Ast *sema_generic(Ast *ast, bool may_be_genvar)
         return sema_module_inst(static_cast<ModuleInstAst *>(ast));
     case AST_TYPE_WIRE_DECL:
         return ast;
+    case AST_TYPE_SYSTEM_FUNC_CALL:
+        return sema_system_func_call(static_cast<SystemFuncCallAst *>(ast),
+                                     may_be_genvar);
     default:
         return ast;
     }
