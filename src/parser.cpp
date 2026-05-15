@@ -14,22 +14,22 @@ static void expect(const std::vector<Token> &tokens,
                    bool is_critical = true)
 {
     if (tokens[pos].type != type) {
-        std::string s = "expected token type ";
-        s += token_str[type];
-        s += " but got ";
+        std::string msg = "expected token type ";
+        msg += token_str[type];
+        msg += " but got ";
         if (tokens[pos].type == TOKEN_TYPE_IDENTIFIER ||
             tokens[pos].type == TOKEN_TYPE_NUMBER) {
-            s += " \"" +
-                 std::string(
-                     s.substr(tokens[pos].idx.start, tokens[pos].idx.len)) +
-                 "\"";
+            msg += " \"" +
+                   std::string(
+                       s.substr(tokens[pos].idx.start, tokens[pos].idx.len)) +
+                   "\"";
         } else {
-            s += token_str[tokens[pos].type];
+            msg += token_str[tokens[pos].type];
         }
         if (is_critical) {
-            critical(tokens[pos].idx, s.c_str());
+            critical(tokens[pos].idx, msg.c_str());
         } else {
-            error(tokens[pos].idx, s.c_str());
+            error(tokens[pos].idx, msg.c_str());
         }
     }
 }
@@ -37,19 +37,20 @@ static void expect(const std::vector<Token> &tokens,
 static void unexpected_token(const std::vector<Token> &tokens,
                              bool is_critical = true)
 {
-    std::string s = "unexpected token type ";
+    std::string msg = "unexpected token type ";
     if (tokens[pos].type == TOKEN_TYPE_IDENTIFIER ||
         tokens[pos].type == TOKEN_TYPE_NUMBER) {
-        s += " \"" +
-             std::string(s.substr(tokens[pos].idx.start, tokens[pos].idx.len)) +
-             "\"";
+        msg +=
+            " \"" +
+            std::string(s.substr(tokens[pos].idx.start, tokens[pos].idx.len)) +
+            "\"";
     } else {
-        s += token_str[tokens[pos].type];
+        msg += token_str[tokens[pos].type];
     }
     if (is_critical) {
-        critical(tokens[pos].idx, s.c_str());
+        critical(tokens[pos].idx, msg.c_str());
     } else {
-        error(tokens[pos].idx, s.c_str());
+        error(tokens[pos].idx, msg.c_str());
     }
 }
 
