@@ -1,3 +1,4 @@
+#include <filesystem>
 #include <map>
 
 #include "defs.h"
@@ -47,7 +48,7 @@ struct KeywordTrie {
 };
 
 static KeywordTrie *keyword_root;
-__attribute__((constructor)) static KeywordTrie *build_keyword_trie()
+__attribute__((constructor)) static void build_keyword_trie()
 {
     keyword_root = new KeywordTrie();
     std::pair<const char *, TokenType>
@@ -80,7 +81,6 @@ __attribute__((constructor)) static KeywordTrie *build_keyword_trie()
         }
         node->type = kw.second;
     }
-    return keyword_root;
 }
 
 struct PunctTrie {
@@ -143,6 +143,94 @@ static void skip_c_comment()
     }
 }
 
+static std::string search_include_path(const Loc &filename)
+{
+    const std::string &curr_file = files[stack.current().fd].name;
+    std::string curr_dir = curr_file.substr(0, curr_file.find_last_of('/'));
+    std::string path = curr_dir + "/" + get_file_content(filename);
+    if (std::filesystem::exists(path)) {
+        return path;
+    }
+    std::string msg = "Included file '" + get_file_content(filename) +
+                      "' not found in the same directory";
+    critical(filename, msg.c_str());
+}
+
+static void process_include(std::vector<Token> &tokens)
+{
+    if (stack.size() == MAX_STACK_SIZE - 1) {
+        std::string msg = "Too many nested includes (max " +
+                          std::to_string(MAX_STACK_SIZE) + ")";
+        critical({stack.current().pos, 1, stack.current().fd}, msg.c_str());
+    }
+    advance();
+    while (curr_char != '\n' && isspace(curr_char)) {
+        advance();
+    }
+    if (curr_char != '"') {
+        std::string msg = "Expected '\"' after `include";
+        critical({stack.current().pos, 1, stack.current().fd}, msg.c_str());
+    }
+    advance();
+    unsigned start = stack.current().pos;
+    while (stack.size() != 0 && curr_char != '"') {
+        if (curr_char == '\\') {
+            if (is_curr_back()) {
+                std::string msg = "Unexpected end of file in include directive";
+                critical({stack.current().pos, 1, stack.current().fd},
+                         msg.c_str());
+            }
+            advance();
+        }
+        if (is_curr_back()) {
+            std::string msg = "Unexpected end of file in include directive";
+            critical({stack.current().pos, 1, stack.current().fd}, msg.c_str());
+        }
+        advance();
+    }
+    if (stack.size() == 0) {
+        std::string msg = "Unexpected end of file in include directive";
+        critical({stack.current().pos, 1, stack.current().fd}, msg.c_str());
+    }
+    int fd = open(search_include_path(
+        {start, (unsigned) (stack.current().pos - start), stack.current().fd}));
+    advance();
+    stack.push(fd, 0);
+}
+
+
+static const std::map<std::string, void (*)(std::vector<Token> &)>
+    directives_processors = {{"include", process_include}};
+static void process_directive(std::vector<Token> &tokens)
+{
+    if (is_curr_back()) {
+        std::string msg = "Unexpected end of file after '`'";
+        critical({stack.current().pos, 1, stack.current().fd}, msg.c_str());
+    }
+    advance();
+    if (!isalpha(curr_char)) {
+        std::string msg = "Expected identifier after '`'";
+        critical({stack.current().pos, 1, stack.current().fd}, msg.c_str());
+    }
+    unsigned start = stack.current().pos;
+    while (stack.size() != 0 && isalpha(curr_char)) {
+        advance();
+    }
+    std::string directive(get_file_content(
+        {start, (unsigned) (stack.current().pos - start), stack.current().fd}));
+    if (!directives_processors.count(directive)) {
+        std::string msg = "Unknown directive '`" + directive + "'";
+        critical({start, (unsigned) (stack.current().pos - start),
+                  stack.current().fd},
+                 msg.c_str());
+    }
+    if (!isspace(curr_char)) {
+        std::string msg = "Expected space after directive '`" + directive + "'";
+        critical({stack.current().pos, 1, stack.current().fd}, msg.c_str());
+    }
+    directives_processors.at(directive)(tokens);
+}
+
 
 std::vector<Token> lex(int fd)
 {
@@ -153,6 +241,12 @@ std::vector<Token> lex(int fd)
         if (stack.size() == 0) {
             break;
         }
+
+        if (curr_char == '`') {
+            process_directive(tokens);
+            continue;
+        }
+
         if (curr_char == '/' && !is_curr_back()) {
             if (next_char(1) == '/') {
                 skip_cpp_comment();

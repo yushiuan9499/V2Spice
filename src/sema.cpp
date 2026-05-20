@@ -90,8 +90,9 @@ static Ast *sema_number(NumberAst *ast, bool is_genvar)
             get_file_content({pos.start, pos.len - (has_exp ? 1 : 0), pos.fd}));
 
         if (has_exp) {
-            ast->float_value = mul_pow10(
-                ast->float_value, parse_exp({pos.start + pos.len - 1, 1}));
+            ast->float_value =
+                mul_pow10(ast->float_value,
+                          parse_exp({pos.start + pos.len - 1, 1, pos.fd}));
         }
     } else {
         ast->int_value = std::stoll(get_file_content(pos));

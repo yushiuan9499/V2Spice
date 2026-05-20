@@ -1,23 +1,5 @@
-module inv (
-    in,
-    out_1,
-    GND,
-    VDD
-);
-p_18 M1 #(W=1u,L=18u)(
-    .D(out_1),
-    .G(in),
-    .B(GND),
-    .S(VDD)
-);
-n_18 M2 #(W=0.5u,L=18u)(
-    .G(in),
-    .S(GND),
-    .B(VDD),
-    .D(out_1)
-);
-endmodule
 
+`include "inv.v"
 module no_port_and_use_array();
 n_18 M1 #(W=1u*2,L=18u/2u*3u+1u)(
     .D(a[0]),
