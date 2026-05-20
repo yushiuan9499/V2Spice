@@ -1,6 +1,8 @@
 #include <algorithm>
+#include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -17,59 +19,72 @@
 #define BOLD "\033[1m"
 #define UNDERLINE "\033[4m"
 
-std::string s;
-
 static LogLevel log_level = LOG_LEVEL_INFO;
-static std::vector<unsigned> newlines;
 static int _error_count = 0;
+static std::map<std::string, int> fd;
+std::vector<File> files;
 
-/*
- * This function must be called before any logging function is called and after
- * s is set.
- */
-void init_log()
+int open(const std::string &filename, const Loc &loc)
 {
-    _error_count = 0;
-    newlines.clear();
-    newlines.push_back(0);
-    /* Compute the positions of newlines in s for error reporting. */
-    for (unsigned i = 0; i < s.size(); i++) {
-        if (s[i] == '\n') {
-            newlines.push_back(i);
+    static int next_fd = 0;
+    std::ifstream ifs(filename);
+    if (!ifs) {
+        if (loc.len != 0) {
+            critical(loc, ("cannot open file: " + filename).c_str());
+        } else {
+            std::cerr << "cannot open file: " << filename << "\n";
+            exit(1);
         }
     }
-    newlines.push_back(s.size());
+    fd[filename] = next_fd++;
+    files.push_back(
+        {filename, std::string((std::istreambuf_iterator<char>(ifs)),
+                               std::istreambuf_iterator<char>()) +
+                       "\n"});
+    files.back().newlines.push_back(0);
+    /* Compute the positions of newlines in s for error reporting. */
+    for (unsigned i = 0; i < files.back().content.size(); i++) {
+        if (files.back().content[i] == '\n') {
+            files.back().newlines.push_back(i);
+        }
+    }
+    files.back().newlines.push_back(files.back().content.size());
+    return fd[filename];
 }
 
 static void log(const char *title,
                 const char *title_color,
                 const char *msg,
-                Idx idx)
+                const Loc &loc)
 {
-    int line = upper_bound(newlines.begin(), newlines.end(), idx.start) -
-               newlines.begin();
-    unsigned line_start = line == 1 ? 0 : newlines[line - 1] + 1;
-    /* <Line number>:<Column number>: <@title_color><@title>: ENDC <@msg>*/
-    std::cerr << line << ":" << idx.start - line_start + 1 << ": "
-              << title_color << title << ENDC << " " << msg << "\n";
+    const File &file = files[loc.fd];
+    int line =
+        upper_bound(file.newlines.begin(), file.newlines.end(), loc.start) -
+        file.newlines.begin();
+    unsigned line_start = line == 1 ? 0 : file.newlines[line - 1] + 1;
+    /* <File name>:<Line number>:<Column number>: <@title_color><@title>: ENDC
+     * <@msg>*/
+    std::cerr << file.name << ":" << line << ":" << loc.start - line_start + 1
+              << ": " << title_color << title << ":" ENDC " " << msg << "\n";
 
     /* Suppose line number won't greater than 9999. */
     std::cerr << std::setw(5) << line << " | ";
 
     /* Print the line with highlight. */
-    std::cerr << s.substr(line_start, idx.start - line_start);
-    std::cerr << title_color << s.substr(idx.start, idx.len) << ENDC;
-    std::cerr << s.substr(idx.start + idx.len,
-                          newlines[line] - (idx.start + idx.len))
+    std::cerr << file.content.substr(line_start, loc.start - line_start);
+    std::cerr << title_color << file.content.substr(loc.start, loc.len) << ENDC;
+    std::cerr << file.content.substr(
+                     loc.start + loc.len,
+                     file.newlines[line] - (loc.start + loc.len))
               << "\n";
 
     /* Print a pointer to the error position. */
     std::cerr << "      | ";
-    for (unsigned i = line_start; i < idx.start; i++) {
+    for (unsigned i = line_start; i < loc.start; i++) {
         std::cerr << " ";
     }
     std::cerr << title_color;
-    for (unsigned i = 0; i < idx.len; i++) {
+    for (unsigned i = 0; i < loc.len; i++) {
         std::cerr << "^";
     }
     std::cerr << ENDC << "\n";
@@ -80,40 +95,40 @@ void set_log_level(LogLevel level)
     log_level = level;
 }
 
-void internal_error(Idx idx, const char *msg)
+void internal_error(const Loc &loc, const char *msg)
 {
-    log("INTERNAL ERROR", FAIL, msg, idx);
+    log("INTERNAL ERROR", FAIL, msg, loc);
     exit(1);
 }
 
-void critical(Idx idx, const char *msg)
+void critical(const Loc &loc, const char *msg)
 {
-    log("error", FAIL, msg, idx);
+    log("error", FAIL, msg, loc);
     exit(1);
 }
 
-void error(Idx idx, const char *msg)
+void error(const Loc &loc, const char *msg)
 {
     _error_count++;
-    log("error", FAIL, msg, idx);
+    log("error", FAIL, msg, loc);
 }
 
-void warning(Idx idx, const char *msg)
+void warning(const Loc &loc, const char *msg)
 {
-    log("warning", WARNING, msg, idx);
+    log("warning", WARNING, msg, loc);
 }
 
-void info(Idx idx, const char *msg)
+void info(const Loc &loc, const char *msg)
 {
     if (log_level <= LOG_LEVEL_INFO) {
-        log("info", OKBLUE, msg, idx);
+        log("info", OKBLUE, msg, loc);
     }
 }
 
-void debug(Idx idx, const char *msg)
+void debug(const Loc &loc, const char *msg)
 {
     if (log_level <= LOG_LEVEL_DEBUG) {
-        log("debug", PURPLE, msg, idx);
+        log("debug", PURPLE, msg, loc);
     }
 }
 

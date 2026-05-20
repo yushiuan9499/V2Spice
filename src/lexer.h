@@ -6,6 +6,6 @@
 
 #include "defs.h"
 
-std::vector<Token> lex(const std::string &input);
+std::vector<Token> lex(int fd);
 
 #endif  // LEXEL_H

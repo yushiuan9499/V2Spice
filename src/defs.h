@@ -90,15 +90,31 @@ static const char *token_str[TOKEN_TYPE_NR] = {
     [TOKEN_TYPE_SYSTEM_FUNC] = "<system function>",
     [TOKEN_TYPE_IDENTIFIER] = "<identifier>"};
 
-struct Idx {
+struct Loc {
     unsigned start;
     unsigned len;
+    int fd;
 };
 
 struct Token {
-    Idx idx;
+    Loc loc;
     TokenType type;
 };
+
+enum TypeEnum {
+    TYPE_WIRE = 0,
+    TYPE_GENVAR,
+    TYPE_PARAM,
+    TYPE_LOCALPARAM,
+    TYPE_NR
+};
+
+struct Type {
+    TypeEnum type;
+    unsigned short array_depth;
+};
+
+static const Type DEFAULT_TYPE = {TYPE_WIRE, 0};
 
 enum AstType {
     AST_TYPE_NONE,
@@ -116,17 +132,18 @@ enum AstType {
 };
 struct Ast {
     const AstType type;
-    Ast(AstType type) : type(type) {}
+    Type var_type;
+    Ast(AstType type) : type(type), var_type(DEFAULT_TYPE) {}
     virtual ~Ast() = default;
 };
 
 struct IdAst : public Ast {
-    Idx name;
+    Loc name;
     IdAst() : Ast{AST_TYPE_ID} {}
 };
 
 struct StrAst : public Ast {
-    Idx str;
+    Loc str;
     StrAst() : Ast{AST_TYPE_STR} {}
 };
 
@@ -136,7 +153,7 @@ struct NumberAst : public Ast {
         long long int_value;
         double float_value;
     };
-    Idx pos;
+    Loc pos;
     NumberAst() : Ast{AST_TYPE_NUMBER} {}
 };
 
@@ -179,12 +196,12 @@ struct BinaryOpAst : public Ast {
 };
 
 struct WireDeclAst : public Ast {
-    Idx name;
+    Loc name;
     WireDeclAst() : Ast{AST_TYPE_WIRE_DECL} {}
 };
 
 struct SystemFuncCallAst : public Ast {
-    Idx func_id;
+    Loc func_id;
     std::vector<Ast *> args;
     SystemFuncCallAst() : Ast{AST_TYPE_SYSTEM_FUNC_CALL} {}
     ~SystemFuncCallAst()
@@ -196,9 +213,9 @@ struct SystemFuncCallAst : public Ast {
 };
 
 struct ModuleDeclAst : public Ast {
-    Idx name;
+    Loc name;
     std::vector<BinaryOpAst *> params;
-    std::vector<Idx> ports;
+    std::vector<Loc> ports;
     std::vector<Ast *> body;
     ModuleDeclAst() : Ast{AST_TYPE_MODULE_DECL} {}
     ~ModuleDeclAst()
@@ -213,14 +230,14 @@ struct ModuleDeclAst : public Ast {
 };
 
 struct ModuleInstAst : public Ast {
-    Idx module_name;
-    Idx instance_name;
+    Loc module_name;
+    Loc instance_name;
     bool use_named_port;
     std::vector<BinaryOpAst *> params;
     union Port {
         Ast *positional;
         struct {
-            Idx port_name;
+            Loc port_name;
             Ast *expr;
         } named;
     };

@@ -8,7 +8,6 @@ static unsigned pos;
 
 static Ast *parse_binary_op(const std::vector<Token> &tokens);
 
-extern std::string s;
 static void expect(const std::vector<Token> &tokens,
                    TokenType type,
                    bool is_critical = true)
@@ -19,17 +18,15 @@ static void expect(const std::vector<Token> &tokens,
         msg += " but got ";
         if (tokens[pos].type == TOKEN_TYPE_IDENTIFIER ||
             tokens[pos].type == TOKEN_TYPE_NUMBER) {
-            msg += " \"" +
-                   std::string(
-                       s.substr(tokens[pos].idx.start, tokens[pos].idx.len)) +
-                   "\"";
+            msg +=
+                " \"" + std::string(get_file_content(tokens[pos].loc)) + "\"";
         } else {
             msg += token_str[tokens[pos].type];
         }
         if (is_critical) {
-            critical(tokens[pos].idx, msg.c_str());
+            critical(tokens[pos].loc, msg.c_str());
         } else {
-            error(tokens[pos].idx, msg.c_str());
+            error(tokens[pos].loc, msg.c_str());
         }
     }
 }
@@ -40,17 +37,14 @@ static void unexpected_token(const std::vector<Token> &tokens,
     std::string msg = "unexpected token type ";
     if (tokens[pos].type == TOKEN_TYPE_IDENTIFIER ||
         tokens[pos].type == TOKEN_TYPE_NUMBER) {
-        msg +=
-            " \"" +
-            std::string(s.substr(tokens[pos].idx.start, tokens[pos].idx.len)) +
-            "\"";
+        msg += " \"" + std::string(get_file_content(tokens[pos].loc)) + "\"";
     } else {
         msg += token_str[tokens[pos].type];
     }
     if (is_critical) {
-        critical(tokens[pos].idx, msg.c_str());
+        critical(tokens[pos].loc, msg.c_str());
     } else {
-        error(tokens[pos].idx, msg.c_str());
+        error(tokens[pos].loc, msg.c_str());
     }
 }
 
@@ -67,7 +61,7 @@ static SystemFuncCallAst *parse_system_func_call(
     const std::vector<Token> &tokens)
 {
     SystemFuncCallAst *ast = new SystemFuncCallAst;
-    ast->func_id = tokens[pos].idx;
+    ast->func_id = tokens[pos].loc;
     pos++;
 
     expect(tokens, TOKEN_TYPE_LPAREN);
@@ -95,22 +89,22 @@ static Ast *parse_primary(const std::vector<Token> &tokens)
         return e;
     }
     if (tokens[pos].type == TOKEN_TYPE_IDENTIFIER) {
-        debug(tokens[pos].idx, "parse identifier");
+        debug(tokens[pos].loc, "parse identifier");
         IdAst *ast = new IdAst;
-        ast->name = tokens[pos].idx;
+        ast->name = tokens[pos].loc;
         pos++;
         return ast;
     }
     if (tokens[pos].type == TOKEN_TYPE_NUMBER) {
-        debug(tokens[pos].idx, "parse number");
+        debug(tokens[pos].loc, "parse number");
         NumberAst *ast = new NumberAst;
-        ast->pos = tokens[pos].idx;
+        ast->pos = tokens[pos].loc;
         pos++;
         return ast;
     }
     if (tokens[pos].type == TOKEN_TYPE_STR) {
         StrAst *ast = new StrAst;
-        ast->str = tokens[pos].idx;
+        ast->str = tokens[pos].loc;
         pos++;
         return ast;
     }
@@ -220,7 +214,7 @@ static Ast *parse_binary_op(const std::vector<Token> &tokens)
             }
         }
     }
-    debug(tokens[pos].idx, "parsed binary op");
+    debug(tokens[pos].loc, "parsed binary op");
     return ast_stack[0].first;
 }
 
@@ -232,7 +226,7 @@ static void parse_param_list(const std::vector<Token> &tokens,
 
         expect(tokens, TOKEN_TYPE_IDENTIFIER);
         IdAst *id_ast = new IdAst;
-        id_ast->name = tokens[pos].idx;
+        id_ast->name = tokens[pos].loc;
         ast->lhs = id_ast;
         pos++;
 
@@ -261,7 +255,7 @@ static void parse_assign(const std::vector<Token> &tokens,
 
     expect(tokens, TOKEN_TYPE_IDENTIFIER);
     IdAst *id_ast = new IdAst;
-    id_ast->name = tokens[pos].idx;
+    id_ast->name = tokens[pos].loc;
     ast->lhs = id_ast;
     pos++;
 
@@ -282,7 +276,7 @@ static void parse_wire_decl(const std::vector<Token> &tokens,
 {
     expect(tokens, TOKEN_TYPE_IDENTIFIER);
     WireDeclAst *ast = new WireDeclAst;
-    ast->name = tokens[pos].idx;
+    ast->name = tokens[pos].loc;
     pos++;
 
     expect(tokens, TOKEN_TYPE_SEMICOLON);
@@ -294,11 +288,11 @@ static void parse_module_inst(const std::vector<Token> &tokens,
                               std::vector<Ast *> &asts)
 {
     ModuleInstAst *ast = new ModuleInstAst;
-    ast->module_name = tokens[pos].idx;
+    ast->module_name = tokens[pos].loc;
     pos++;
 
     expect(tokens, TOKEN_TYPE_IDENTIFIER);
-    ast->instance_name = tokens[pos].idx;
+    ast->instance_name = tokens[pos].loc;
     pos++;
     if (accept(tokens, TOKEN_TYPE_HASHTAG)) {
         expect(tokens, TOKEN_TYPE_LPAREN);
@@ -317,7 +311,7 @@ static void parse_module_inst(const std::vector<Token> &tokens,
             pos++;  // Skip '.'
             expect(tokens, TOKEN_TYPE_IDENTIFIER);
             ModuleInstAst::Port port;
-            port.named.port_name = tokens[pos].idx;
+            port.named.port_name = tokens[pos].loc;
             pos++;
             expect(tokens, TOKEN_TYPE_LPAREN);
             pos++;  // Skip '('
@@ -358,7 +352,7 @@ static void parse_module_decl(const std::vector<Token> &tokens,
 {
     expect(tokens, TOKEN_TYPE_IDENTIFIER);
     ModuleDeclAst *ast = new ModuleDeclAst;
-    ast->name = tokens[pos].idx;
+    ast->name = tokens[pos].loc;
     pos++;
 
     if (accept(tokens, TOKEN_TYPE_HASHTAG)) {
@@ -375,7 +369,7 @@ static void parse_module_decl(const std::vector<Token> &tokens,
         pos++;  // Skip '('
         while (!accept(tokens, TOKEN_TYPE_RPAREN)) {
             expect(tokens, TOKEN_TYPE_IDENTIFIER);
-            ast->ports.push_back(tokens[pos].idx);
+            ast->ports.push_back(tokens[pos].loc);
             pos++;
             if (tokens[pos].type == TOKEN_TYPE_COMMA) {
                 pos++;  // Skip ','

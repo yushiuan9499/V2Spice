@@ -3,6 +3,8 @@
 
 #include "defs.h"
 
+#include <string>
+
 enum LogLevel {
     LOG_LEVEL_DEBUG,
     LOG_LEVEL_INFO,
@@ -12,16 +14,32 @@ enum LogLevel {
     LOG_LEVEL_INTERNAL_ERROR
 };
 
-void init_log();
+int open(const std::string &filename, const Loc &loc = Loc{0, 0});
+
+
+struct File {
+    std::string name;
+    std::string content;
+    std::vector<unsigned> newlines;
+};
+extern std::vector<File> files;
+static inline const std::string &get_file_content(int fd)
+{
+    return files[fd].content;
+}
+static inline std::string get_file_content(const Loc &loc)
+{
+    return get_file_content(loc.fd).substr(loc.start, loc.len);
+}
 
 void set_log_level(LogLevel level);
 
-void internal_error(Idx idx, const char *msg);
-void critical(Idx idx, const char *msg);
-void error(Idx idx, const char *msg);
-void warning(Idx idx, const char *msg);
-void info(Idx idx, const char *msg);
-void debug(Idx idx, const char *msg);
+void internal_error(const Loc &loc, const char *msg);
+void critical(const Loc &loc, const char *msg);
+void error(const Loc &loc, const char *msg);
+void warning(const Loc &loc, const char *msg);
+void info(const Loc &loc, const char *msg);
+void debug(const Loc &loc, const char *msg);
 
 int error_count();
 

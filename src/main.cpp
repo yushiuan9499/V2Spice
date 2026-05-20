@@ -9,7 +9,7 @@
 
 extern std::string s;
 
-#define VERBOSE 0
+#define VERBOSE 1
 
 int main(int argc, char *argv[])
 {
@@ -17,13 +17,11 @@ int main(int argc, char *argv[])
         std::cerr << "Usage: " << argv[0] << " <input_file>\n";
         return 1;
     }
-    const char *input_file = argv[1];
-    getline(std::ifstream(input_file), s, '\0');
-    init_log();
+    int fd = open(argv[1]);
 #if VERBOSE
     set_log_level(LOG_LEVEL_DEBUG);
 #endif
-    std::vector<Token> tokens = lex(s);
+    std::vector<Token> tokens = lex(fd);
     if (error_count() > 0) {
         std::cerr << error_count() << " error(s) found.\n";
         return 1;

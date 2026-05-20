@@ -4,7 +4,40 @@
 #include "lexer.h"
 #include "log.h"
 
-static unsigned pos;
+struct Frame {
+    int fd;
+    unsigned pos;
+};
+
+const unsigned MAX_STACK_SIZE = 32;
+class Stack
+{
+private:
+    Frame frames[MAX_STACK_SIZE];
+    unsigned top = 0;
+
+public:
+    void push(int fd, unsigned pos) { frames[top++] = {fd, pos}; }
+    void pop() { top--; }
+    Frame &current() { return frames[top - 1]; }
+    int size() { return top; }
+} stack;
+
+static std::map<std::string, std::string> macros;
+
+#define curr_char (get_file_content(stack.current().fd)[stack.current().pos])
+#define next_char(x) \
+    (get_file_content(stack.current().fd)[stack.current().pos + x])
+#define is_curr_back() \
+    (stack.current().pos == get_file_content(stack.current().fd).size() - 1)
+#define advance()                                          \
+    do {                                                   \
+        stack.current().pos++;                             \
+        if (stack.current().pos >=                         \
+            get_file_content(stack.current().fd).size()) { \
+            stack.pop();                                   \
+        }                                                  \
+    } while (0)
 
 struct KeywordTrie {
     std::map<unsigned int, KeywordTrie *> children;
@@ -79,112 +112,128 @@ __attribute__((constructor)) static void build_punct_trie()
     }
 }
 
-static void skip_whitespace(const std::string &input)
+static void skip_whitespace()
 {
-    while (pos < input.size() && isspace(input[pos])) {
-        pos++;
+    while (stack.size() != 0 && isspace(curr_char)) {
+        advance();
     }
 }
 
-static void skip_cpp_comment(const std::string &input)
+static void skip_cpp_comment()
 {
-    while (pos < input.size() && input[pos] != '\n') {
-        pos++;
+    while (stack.size() != 0 && curr_char != '\n') {
+        advance();
     }
-    if (pos < input.size()) {
-        pos++;  // Skip the newline character
-    }
+    advance();
 }
 
-static void skip_c_comment(const std::string &input)
+static void skip_c_comment()
 {
-    while (pos < input.size() &&
-           !(input[pos] == '*' && pos + 1 < input.size() &&
-             input[pos + 1] == '/')) {
-        pos++;
-    }
-    if (pos < input.size()) {
-        pos += 2;  // Skip the closing */
-    }
-}
-
-
-std::vector<Token> lex(const std::string &input)
-{
-    pos = 0;
-    std::vector<Token> tokens;
-    while (pos < input.size()) {
-        skip_whitespace(input);
-        if (pos >= input.size()) {
+    bool was_star = false;
+    while (1) {
+        was_star = curr_char == '*';
+        if (is_curr_back()) {
+            std::string msg = "Expect '*/' to close the comment";
+            critical({stack.current().pos, 1}, msg.c_str());
+        }
+        advance();
+        if (was_star && curr_char == '/') {
             break;
         }
-        if (input[pos] == '/' && pos + 1 < input.size()) {
-            if (input[pos + 1] == '/') {
-                skip_cpp_comment(input);
+    }
+}
+
+
+std::vector<Token> lex(int fd)
+{
+    stack.push(fd, 0);
+    std::vector<Token> tokens;
+    while (stack.size() != 0) {
+        skip_whitespace();
+        if (stack.size() == 0) {
+            break;
+        }
+        if (curr_char == '/' && !is_curr_back()) {
+            if (next_char(1) == '/') {
+                skip_cpp_comment();
                 continue;
-            } else if (input[pos + 1] == '*') {
-                skip_c_comment(input);
+            } else if (next_char(1) == '*') {
+                skip_c_comment();
                 continue;
             }
         }
 
-        if (input[pos] == '"') {
+        if (curr_char == '"') {
             /* String literal */
-            unsigned start = pos;
-            pos++;  // Skip the opening quote
-            while (pos < input.size()) {
-                if (input[pos] == '\\') {
-                    pos += 2;  // Skip escaped character
-                } else if (input[pos] == '"') {
-                    pos++;  // Skip the closing quote
+            unsigned start = stack.current().pos;
+            advance();  // Skip the opening quote
+            while (stack.size() != 0) {
+                if (curr_char == '\\') {
+                    advance();
+                    if (is_curr_back()) {
+                        std::string msg =
+                            "Unexpected end of file in string literal";
+                        critical({stack.current().pos, 1}, msg.c_str());
+                    }
+                    advance();
+                } else if (curr_char == '"') {
+                    advance();
                     break;
                 } else {
-                    pos++;
+                    if (is_curr_back()) {
+                        std::string msg =
+                            "Unexpected end of file in string literal";
+                        critical({stack.current().pos, 1}, msg.c_str());
+                    }
+                    advance();
                 }
             }
-            tokens.push_back(
-                {start, (unsigned short) (pos - start), TOKEN_TYPE_STR});
+            tokens.push_back({start,
+                              (unsigned short) (stack.current().pos - start),
+                              stack.current().fd, TOKEN_TYPE_STR});
             continue;
         }
 
-        if (isdigit(input[pos])) {
+        if (isdigit(curr_char)) {
             /* Number */
-            unsigned start = pos;
-            while (pos < input.size() &&
-                   (isalnum(input[pos]) || input[pos] == '.')) {
-                pos++;
+            unsigned start = stack.current().pos;
+            while (stack.size() != 0 &&
+                   (isalnum(curr_char) || curr_char == '.')) {
+                advance();
             }
-            tokens.push_back(
-                {start, (unsigned short) (pos - start), TOKEN_TYPE_NUMBER});
+            tokens.push_back({start,
+                              (unsigned short) (stack.current().pos - start),
+                              stack.current().fd, TOKEN_TYPE_NUMBER});
             continue;
         }
 
-        if (input[pos] == '$') {
-            unsigned start = pos;
-            pos++;  // Skip the '$' character
-            while (pos < input.size() &&
-                   (isalnum(input[pos]) || input[pos] == '_')) {
-                pos++;
+        if (curr_char == '$') {
+            unsigned start = stack.current().pos;
+            advance();  // Skip the '$' character
+            while (stack.size() != 0 &&
+                   (isalnum(curr_char) || curr_char == '_')) {
+                advance();
             }
-            if (pos == start + 1) {
+            if (stack.current().pos == start + 1) {
                 std::string msg = "Expected character after '$'";
-                critical({start, 1}, msg.c_str());
+                critical({start, 1, stack.current().fd}, msg.c_str());
             }
-            tokens.push_back({start, (unsigned short) (pos - start),
-                              TOKEN_TYPE_SYSTEM_FUNC});
+            tokens.push_back({start,
+                              (unsigned short) (stack.current().pos - start),
+                              stack.current().fd, TOKEN_TYPE_SYSTEM_FUNC});
             continue;
         }
 
-        if (isalpha(input[pos]) || input[pos] == '_') {
-            unsigned start = pos;
+        if (isalpha(curr_char) || curr_char == '_') {
+            unsigned start = stack.current().pos;
             KeywordTrie *node = keyword_root;
             unsigned int v = 0;
-            while (pos < input.size() &&
-                   (isalnum(input[pos]) || input[pos] == '_' ||
-                    input[pos] == '.')) {
-                v = (v << 8) | (unsigned char) input[pos];
-                pos++;
-                if ((pos - start) % 4 == 0) {
+            while (
+                stack.size() != 0 &&
+                (isalnum(curr_char) || curr_char == '_' || curr_char == '.')) {
+                v = (v << 8) | (unsigned char) curr_char;
+                advance();
+                if ((stack.current().pos - start) % 4 == 0) {
                     if (node && node->children.count(v)) {
                         node = node->children[v];
                     } else {
@@ -200,25 +249,29 @@ std::vector<Token> lex(const std::string &input)
                     node = nullptr;
                 }
             }
-            tokens.push_back({start, (unsigned short) (pos - start),
+            tokens.push_back({start,
+                              (unsigned short) (stack.current().pos - start),
+                              stack.current().fd,
                               node ? node->type : TOKEN_TYPE_IDENTIFIER});
             continue;
         }
 
-        unsigned start = pos;
+        unsigned start = stack.current().pos;
         PunctTrie *node = punct_root;
-        while (pos < input.size() && node->children.count(input[pos])) {
-            node = node->children[input[pos]];
-            pos++;
+        while (stack.size() != 0 && node->children.count(curr_char)) {
+            node = node->children[curr_char];
+            advance();
         }
-        if (node->type == TOKEN_TYPE_NONE || pos == start) {
+        if (node->type == TOKEN_TYPE_NONE || stack.current().pos == start) {
             std::string msg = "Unexpected character '";
-            msg += input[pos];
-            msg += "' at position " + std::to_string(pos);
-            critical({pos, 1}, msg.c_str());
+            msg += curr_char;
+            msg += "'";
+            critical({stack.current().pos, 1, stack.current().fd}, msg.c_str());
         }
-        tokens.push_back({start, (unsigned short) (pos - start), node->type});
+        tokens.push_back({start, (unsigned short) (stack.current().pos - start),
+                          stack.current().fd, node->type});
     }
-    tokens.push_back({(unsigned) input.size(), 0, TOKEN_TYPE_EOF});
+    tokens.push_back({(unsigned) 0, 0, 0, TOKEN_TYPE_EOF});
+    macros.clear();
     return tokens;
 }

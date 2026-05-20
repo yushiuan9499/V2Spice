@@ -7,8 +7,6 @@
 #include "log.h"
 #include "sema.h"
 
-extern std::string s;
-
 static std::map<std::string, ModuleDeclAst *> module_table;
 static std::map<ModuleDeclAst *, std::map<std::string, short>>
     module_port_indices;
@@ -17,30 +15,32 @@ union Number {
     double float_value;
 };
 static std::map<std::string, std::pair<bool, Number>> constant_table;
+static std::map<std::string, Type> type_table;
 
 static Ast *sema_generic(Ast *ast, bool may_be_genvar = false);
 
-static signed char parse_exp(const Idx &pos)
+static signed char parse_exp(const Loc &pos)
 {
-    if (s[pos.start] == 'p') {
+    const char c = get_file_content(pos)[0];
+    if (c == 'p') {
         return -12;
-    } else if (s[pos.start] == 'n') {
+    } else if (c == 'n') {
         return -9;
-    } else if (s[pos.start] == 'u') {
+    } else if (c == 'u') {
         return -6;
-    } else if (s[pos.start] == 'm') {
+    } else if (c == 'm') {
         return -3;
-    } else if (s[pos.start] == 'k') {
+    } else if (c == 'k') {
         return 3;
-    } else if (s[pos.start] == 'M') {
+    } else if (c == 'M') {
         return 6;
-    } else if (s[pos.start] == 'G') {
+    } else if (c == 'G') {
         return 9;
-    } else if (s[pos.start] == 'T') {
+    } else if (c == 'T') {
         return 12;
-    } else if (s[pos.start] == 'P') {
+    } else if (c == 'P') {
         return 15;
-    } else if (s[pos.start] == 'E') {
+    } else if (c == 'E') {
         return 18;
     }
     critical(pos, "Invalid unit suffix in number literal.");
@@ -59,12 +59,12 @@ static double mul_pow10(double x, signed char exp)
 static Ast *sema_number(NumberAst *ast, bool is_genvar)
 {
     std::string ss = std::to_string(is_genvar);
-    Idx pos = ast->pos;
+    Loc pos = ast->pos;
     ast->is_float = !is_genvar;
     bool after_dot = false;
     bool has_exp = false;
     for (unsigned short i = 0; i < pos.len; i++) {
-        if (s[pos.start + i] == '.') {
+        if (get_file_content(pos)[i] == '.') {
             if (is_genvar) {
                 critical({pos.start + i, 1},
                          "Genvar cannot have a decimal point.");
@@ -75,7 +75,7 @@ static Ast *sema_number(NumberAst *ast, bool is_genvar)
             after_dot = true;
             continue;
         }
-        if (s[pos.start + i] < '0' || s[pos.start + i] > '9') {
+        if (get_file_content(pos)[i] < '0' || get_file_content(pos)[i] > '9') {
             if (i == pos.len - 1 && !is_genvar) {
                 /* This is a number with a unit suffix */
                 has_exp = true;
@@ -86,23 +86,30 @@ static Ast *sema_number(NumberAst *ast, bool is_genvar)
         }
     }
     if (ast->is_float) {
-        ast->float_value =
-            std::stod(s.substr(pos.start, pos.len - (has_exp ? 1 : 0)));
+        ast->float_value = std::stod(
+            get_file_content({pos.start, pos.len - (has_exp ? 1 : 0), pos.fd}));
 
         if (has_exp) {
             ast->float_value = mul_pow10(
                 ast->float_value, parse_exp({pos.start + pos.len - 1, 1}));
         }
     } else {
-        ast->int_value = std::stoll(s.substr(pos.start, pos.len));
+        ast->int_value = std::stoll(get_file_content(pos));
     }
     return ast;
 }
 
 static Ast *sema_id(IdAst *ast)
 {
-    std::string name = s.substr(ast->name.start, ast->name.len);
-    if (constant_table.count(name)) {
+    std::string name = get_file_content(ast->name);
+    Type type;
+    if (type_table.count(name)) {
+        type = type_table[name];
+    } else {
+        type = DEFAULT_TYPE;
+    }
+
+    if (type.type == TYPE_LOCALPARAM) {
         NumberAst *number_ast = new NumberAst;
         number_ast->is_float = constant_table[name].first;
         if (number_ast->is_float) {
@@ -113,12 +120,13 @@ static Ast *sema_id(IdAst *ast)
         delete ast;
         return number_ast;
     }
+    ast->var_type = type;
     return ast;
 }
 
 static Ast *sema_system_func_call(SystemFuncCallAst *ast, bool may_be_genvar)
 {
-    std::string func_name = s.substr(ast->func_id.start, ast->func_id.len);
+    std::string func_name = get_file_content(ast->func_id);
     if (func_name == "$spice") {
         if (ast->args.size() == 0) {
             critical(ast->func_id, "$spice requires at least one argument.");
@@ -163,11 +171,11 @@ static Ast *sema_unary_op(UnaryAst *ast, bool may_be_genvar)
     if (ast->operand->type == AST_TYPE_BINARY_OP) {
         /* If the operand is a binary operator, it means that is an assign
          * expression */
-        critical(ast->op.idx,
+        critical(ast->op.loc,
                  "Operand of unary operator cannot be an assign expression.");
     } else if (ast->operand->type == AST_TYPE_ID ||
                ast->operand->type == AST_TYPE_SUBSCRIPT) {
-        critical(ast->op.idx, "Operand of unary operator cannot be wire.");
+        critical(ast->op.loc, "Operand of unary operator cannot be wire.");
     }
     NumberAst *operand = static_cast<NumberAst *>(ast->operand);
     switch (ast->op.type) {
@@ -181,7 +189,7 @@ static Ast *sema_unary_op(UnaryAst *ast, bool may_be_genvar)
         }
         return operand;
     default:
-        internal_error(ast->op.idx, "Unexpected unary operator.");
+        internal_error(ast->op.loc, "Unexpected unary operator.");
     }
     return nullptr;  // Unreachable
 }
@@ -195,18 +203,18 @@ static Ast *sema_binary_op(BinaryOpAst *ast, bool may_be_genvar)
         has_error = true;
         /* If the LHS is a binary operator, it means that is an assign
          * expression */
-        error(ast->op.idx,
+        error(ast->op.loc,
               "Left-hand side expression cannot be a assign expression.");
     }
     if (ast->lhs->type == AST_TYPE_NUMBER && ast->op.type == TOKEN_TYPE_EQUAL) {
         has_error = true;
-        error(ast->op.idx, "Cannot assign to a number.");
+        error(ast->op.loc, "Cannot assign to a number.");
     }
     if ((ast->lhs->type == AST_TYPE_ID ||
          ast->lhs->type == AST_TYPE_SUBSCRIPT) &&
         ast->op.type != TOKEN_TYPE_EQUAL) {
         has_error = true;
-        error(ast->op.idx,
+        error(ast->op.loc,
               "Only assignment operator is allowed for identifiers.");
     }
 
@@ -214,21 +222,21 @@ static Ast *sema_binary_op(BinaryOpAst *ast, bool may_be_genvar)
         has_error = true;
         /* If the RHS is a binary operator, it means that is an assign
          * expression */
-        error(ast->op.idx,
+        error(ast->op.loc,
               "Right-hand side expression cannot be a assign expression.");
     }
     if ((ast->rhs->type == AST_TYPE_ID ||
          ast->rhs->type == AST_TYPE_SUBSCRIPT) &&
         ast->op.type != TOKEN_TYPE_EQUAL) {
         has_error = true;
-        error(ast->op.idx,
+        error(ast->op.loc,
               "Only assignment operator is allowed for identifiers.");
     }
     if (ast->rhs->type != AST_TYPE_NUMBER && ast->op.type != TOKEN_TYPE_EQUAL) {
         std::string msg =
             "Unexpected right-hand side expression for operator '";
         msg += token_str[ast->op.type];
-        internal_error(ast->op.idx, msg.c_str());
+        internal_error(ast->op.loc, msg.c_str());
     }
     if (has_error) {
         exit(1);
@@ -305,7 +313,7 @@ static Ast *sema_binary_op(BinaryOpAst *ast, bool may_be_genvar)
         }
     case TOKEN_TYPE_PERCENT:
         if (lhs->is_float || rhs->is_float) {
-            critical(ast->op.idx,
+            critical(ast->op.loc,
                      "Modulo operator is not supported for float.");
         } else {
             NumberAst *result = new NumberAst;
@@ -316,7 +324,7 @@ static Ast *sema_binary_op(BinaryOpAst *ast, bool may_be_genvar)
         }
     case TOKEN_TYPE_OR:
         if (lhs->is_float || rhs->is_float) {
-            critical(ast->op.idx,
+            critical(ast->op.loc,
                      "Logical OR operator is not supported for float.");
         } else {
             NumberAst *result = new NumberAst;
@@ -327,7 +335,7 @@ static Ast *sema_binary_op(BinaryOpAst *ast, bool may_be_genvar)
         }
     case TOKEN_TYPE_AND:
         if (lhs->is_float || rhs->is_float) {
-            critical(ast->op.idx,
+            critical(ast->op.loc,
                      "Logical AND operator is not supported for float.");
         } else {
             NumberAst *result = new NumberAst;
@@ -449,7 +457,7 @@ static Ast *sema_binary_op(BinaryOpAst *ast, bool may_be_genvar)
         delete ast->lhs;
         return rhs;
     default:
-        internal_error(ast->op.idx,
+        internal_error(ast->op.loc,
                        "This operator should have been handled in the parser.");
     }
     return ast;  // Unreachable
@@ -471,9 +479,8 @@ static const std::map<std::string, short> d_port = {{"P", 0}, {"N", 1}};
 static Ast *sema_module_inst(ModuleInstAst *ast)
 {
     const std::map<std::string, short> *port_map = nullptr;
-    const std::string module_name =
-        s.substr(ast->module_name.start, ast->module_name.len);
-    switch (toupper(s[ast->instance_name.start])) {
+    const std::string module_name = get_file_content(ast->module_name);
+    switch (toupper(get_file_content(ast->instance_name)[0])) {
     case 'R':
     case 'L':
     case 'C':
@@ -518,8 +525,7 @@ static Ast *sema_module_inst(ModuleInstAst *ast)
     }
     std::vector<std::pair<short, Ast *>> ports;
     for (ModuleInstAst::Port &port : ast->ports) {
-        std::string port_name =
-            s.substr(port.named.port_name.start, port.named.port_name.len);
+        std::string port_name = get_file_content(port.named.port_name);
         if (!port_map->count(port_name)) {
             std::string msg = "Port '" + port_name +
                               "' is not defined in module '" + module_name +
@@ -560,7 +566,7 @@ static Ast *sema_module_inst(ModuleInstAst *ast)
 
 static Ast *sema_module_decl(ModuleDeclAst *ast)
 {
-    std::string name = s.substr(ast->name.start, ast->name.len);
+    std::string name = get_file_content(ast->name);
     if (module_table.count(name)) {
         std::string msg = "Module '" + name + "' is already defined.";
         error(ast->name, msg.c_str());
@@ -571,8 +577,7 @@ static Ast *sema_module_decl(ModuleDeclAst *ast)
     }
     module_table[name] = ast;
     for (size_t i = 0; i < ast->ports.size(); i++) {
-        std::string port_name =
-            s.substr(ast->ports[i].start, ast->ports[i].len);
+        std::string port_name = get_file_content(ast->ports[i]);
         if (module_port_indices[ast].count(port_name)) {
             std::string msg = "Port '" + port_name +
                               "' is already defined in module '" + name + "'.";
