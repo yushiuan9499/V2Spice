@@ -28,7 +28,7 @@ $(BUILD_DIR)/parser.o: $(SRC_DIR)/parser.cpp $(SRC_DIR)/parser.h $(SRC_DIR)/defs
 $(BUILD_DIR)/sema.o: $(SRC_DIR)/sema.cpp $(SRC_DIR)/sema.h $(SRC_DIR)/defs.h $(SRC_DIR)/log.h
 	$(CXX) $(CFLAGS) -c $< -o $@
 
-$(BUILD_DIR)/print.o: $(SRC_DIR)/print.cpp $(SRC_DIR)/print.h $(SRC_DIR)/defs.h
+$(BUILD_DIR)/print.o: $(SRC_DIR)/print.cpp $(SRC_DIR)/print.h $(SRC_DIR)/defs.h $(SRC_DIR)/log.h
 	$(CXX) $(CFLAGS) -c $< -o $@
 
 clean:
